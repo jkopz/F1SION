@@ -18,6 +18,7 @@ export default {
       fontFamily: {
         f1: ["Formula1", "sans-serif"],
         "f1-bold": ["Formula1-Bold", "sans-serif"],
+        "f1-display-bold": ["Formula1-Display-Bold", "Formula1-Bold", "sans-serif"],
         "f1-wide": ["Formula1-Wide", "sans-serif"],
         "f1-black": ["Formula1-Black", "sans-serif"],
         mono: ["JetBrains Mono", "ui-monospace", "monospace"],

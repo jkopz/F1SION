@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { TrackLayout, Driver, DriverLap } from '../types/f1';
 import { Play, Pause, RotateCcw, FastForward, Flag, Compass } from 'lucide-react';
+import { cleanHeadshotUrl, formatDriverName, getCountryFlag } from '../utils/driver';
 
 interface CircuitMapProps {
   layout: TrackLayout | null;
@@ -267,7 +268,7 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
               <span className="flex items-center gap-1.5">
                 ACTIVE SECTOR:
                 <span
-                  className={`font-bold px-1.5 py-0.2 rounded text-[10px] ${
+                  className={`font-bold px-1.5 py-px rounded text-[10px] ${
                     currentSector === 1
                       ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
                       : currentSector === 2
@@ -504,7 +505,7 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
                   y="13"
                   fill="#ffffff"
                   fontSize="10"
-                  fontFamily="Formula1-Wide, Formula1-Bold, sans-serif"
+                  fontFamily="Formula1-Display-Bold, Formula1-Bold, sans-serif"
                 >
                   {selectedDriver?.name_acronym || 'P1'}
                 </text>
@@ -522,44 +523,84 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
               top: `${(currentCarPos.y / SVG_HEIGHT) * 100}%`,
             }}
           >
-            <div className="flex items-center gap-3 p-3 rounded-xl border border-white/[0.18] bg-black/90 backdrop-blur-xl shadow-[0_12px_32px_rgba(0,0,0,0.85)] min-w-[210px]">
-              <div className="relative h-12 w-12 rounded-full overflow-hidden border border-white/20 bg-zinc-800 shrink-0">
-                {selectedDriver?.headshot_url ? (
+            {/* Liquid Glass card — layered frosted glass with coloured tint */}
+            <div
+              className="relative flex items-center gap-3 p-3 rounded-2xl min-w-[220px] overflow-hidden"
+              style={{
+                background: `linear-gradient(135deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.06) 100%)`,
+                backdropFilter: 'blur(28px) saturate(180%)',
+                WebkitBackdropFilter: 'blur(28px) saturate(180%)',
+                border: `1px solid rgba(255,255,255,0.22)`,
+                boxShadow: `0 8px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.18), 0 0 0 1px rgba(0,0,0,0.12)`,
+              }}
+            >
+              {/* Subtle colour tint from team livery */}
+              <div
+                className="pointer-events-none absolute inset-0 rounded-2xl"
+                style={{
+                  background: `radial-gradient(ellipse at 20% 50%, ${driverColor}22 0%, transparent 65%)`,
+                }}
+              />
+              {/* Specular highlight streak */}
+              <div
+                className="pointer-events-none absolute top-0 left-3 right-3 h-px"
+                style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent)' }}
+              />
+
+              {/* Driver headshot */}
+              <div
+                className="relative h-12 w-12 rounded-xl overflow-hidden shrink-0"
+                style={{
+                  border: `1.5px solid rgba(255,255,255,0.25)`,
+                  boxShadow: `0 0 0 1px ${driverColor}50`,
+                }}
+              >
+                {cleanHeadshotUrl(selectedDriver?.headshot_url) ? (
                   <img
-                    src={selectedDriver.headshot_url}
-                    alt={selectedDriver.broadcast_name}
-                    className="h-full w-full object-cover"
+                    src={cleanHeadshotUrl(selectedDriver?.headshot_url)}
+                    alt={selectedDriver?.broadcast_name}
+                    className="h-full w-full object-cover object-top"
                     onError={(e) => {
                       (e.target as HTMLElement).style.display = 'none';
                     }}
                   />
                 ) : (
-                  <div className="h-full w-full flex items-center justify-center font-bold text-white font-mono">
+                  <div
+                    className="h-full w-full flex items-center justify-center text-[11px] text-white"
+                    style={{ background: `${driverColor}30`, fontFamily: 'Formula1-Display-Bold, Formula1-Bold, sans-serif' }}
+                  >
                     {selectedDriver?.name_acronym}
                   </div>
                 )}
               </div>
 
-              <div className="space-y-0.5">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-bold text-white tracking-wide">
-                    {selectedDriver?.broadcast_name || 'DRIVER'}
+              {/* Driver info */}
+              <div className="relative space-y-0.5 min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-xs text-white tracking-wide" style={{ fontFamily: 'Formula1-Display-Bold, Formula1-Bold, sans-serif' }}>
+                    {selectedDriver?.name_acronym}
+                  </span>
+                  <span className="text-sm leading-none" title={selectedDriver?.country_code}>
+                    {getCountryFlag(selectedDriver?.country_code)}
                   </span>
                   <span
-                    className="text-[10px] font-mono font-bold px-1 rounded"
-                    style={{ backgroundColor: `${driverColor}30`, color: driverColor }}
+                    className="text-[10px] font-mono font-bold px-1.5 py-px rounded-md"
+                    style={{ backgroundColor: `${driverColor}30`, color: driverColor, border: `1px solid ${driverColor}50` }}
                   >
                     #{selectedDriver?.driver_number}
                   </span>
                 </div>
-                <p className="text-[10px] text-zinc-400 truncate max-w-[120px]">
+                <p className="text-[11px] font-semibold text-white/80 leading-tight">
+                  {formatDriverName(selectedDriver?.full_name, selectedDriver?.broadcast_name)}
+                </p>
+                <p className="text-[9px] text-white/50 truncate max-w-[130px]">
                   {selectedDriver?.team_name}
                 </p>
-                <div className="flex items-center gap-2 pt-1 font-mono text-[10px] text-zinc-300">
+                <div className="flex items-center gap-2 pt-0.5 font-mono text-[10px] text-white/70">
                   <span>⚡ <strong className="text-white">{simulatedSpeed}</strong> km/h</span>
-                  <span>•</span>
+                  <span className="text-white/30">•</span>
                   <span>S{currentSector}</span>
-                  {isPinned && <span className="text-white">• PINNED</span>}
+                  {isPinned && <span className="text-white/60">• PINNED</span>}
                 </div>
               </div>
             </div>

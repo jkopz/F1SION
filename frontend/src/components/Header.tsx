@@ -1,6 +1,6 @@
 import React from 'react';
 import { Session } from '../types/f1';
-import { Radio, Calendar, Sparkles, Activity, Power, Zap } from 'lucide-react';
+import { Radio, Calendar, Sparkles, Activity, Power, Zap, Lock } from 'lucide-react';
 
 interface HeaderProps {
   sessions: Session[];
@@ -22,9 +22,9 @@ export const Header: React.FC<HeaderProps> = ({
   onShutdownRequest,
 }) => {
   const tabs = [
-    { id: 'qualifying', label: 'QUALIFYING ANALYSIS', icon: Activity, active: true },
-    { id: 'race', label: 'RACE TELEMETRY', icon: Radio, badge: 'PREVIEW' },
-    { id: 'predictions', label: 'AI PREDICTIONS', icon: Sparkles, badge: 'NEXT' },
+    { id: 'qualifying', label: 'QUALIFYING ANALYSIS', icon: Activity, locked: false },
+    { id: 'race', label: 'RACE TELEMETRY', icon: Radio, locked: true, badge: 'SOON' },
+    { id: 'predictions', label: 'AI PREDICTIONS', icon: Sparkles, locked: true, badge: 'SOON' },
   ];
 
   return (
@@ -60,19 +60,22 @@ export const Header: React.FC<HeaderProps> = ({
             return (
               <button
                 key={tab.id}
-                onClick={() => onSelectTab(tab.id)}
-                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 ${
+                onClick={() => !tab.locked && onSelectTab(tab.id)}
+                disabled={tab.locked}
+                title={tab.locked ? 'Coming soon — not yet available' : undefined}
+                aria-disabled={tab.locked}
+                className={`relative flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 select-none ${
                   isCurrent
                     ? 'bg-red-600 text-white shadow-[0_2px_12px_rgba(225,6,0,0.4)]'
+                    : tab.locked
+                    ? 'text-zinc-600 cursor-not-allowed opacity-40'
                     : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
                 }`}
               >
-                <Icon size={13} />
+                {tab.locked ? <Lock size={12} className="shrink-0" /> : <Icon size={13} className="shrink-0" />}
                 <span className="tracking-wide">{tab.label}</span>
                 {tab.badge && (
-                  <span className={`text-[9px] px-1.5 py-0.2 rounded font-mono ${
-                    isCurrent ? 'bg-black/30 text-white' : 'bg-white/[0.08] text-zinc-400'
-                  }`}>
+                  <span className="text-[9px] px-1.5 py-px rounded font-mono bg-white/[0.06] text-zinc-600">
                     {tab.badge}
                   </span>
                 )}

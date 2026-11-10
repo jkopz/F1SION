@@ -1,6 +1,7 @@
 import React from 'react';
 import { Driver, DriverLap } from '../types/f1';
 import { Trophy, ChevronRight, Timer } from 'lucide-react';
+import { cleanHeadshotUrl, formatDriverName, getCountryFlag } from '../utils/driver';
 
 interface LeaderboardProps {
   drivers: Driver[];
@@ -39,6 +40,9 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
         {drivers.map((driver, index) => {
           const isSelected = selectedDriver?.driver_number === driver.driver_number;
           const isPole = index === 0;
+          const headshotUrl = cleanHeadshotUrl(driver.headshot_url);
+          const flag = getCountryFlag(driver.country_code);
+          const fullName = formatDriverName(driver.full_name, driver.broadcast_name);
 
           return (
             <button
@@ -61,68 +65,78 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
                 }}
               />
 
-              <div className="flex items-center gap-3 pl-2">
-                {/* Position / Pole Indicator */}
-                <span className={`w-5 text-center font-mono text-xs font-bold ${
-                  isPole ? 'text-yellow-400' : 'text-zinc-400'
+              <div className="flex items-center gap-2.5 pl-2 min-w-0">
+                {/* Position */}
+                <span className={`w-4 shrink-0 text-center font-mono text-xs font-bold ${
+                  isPole ? 'text-yellow-400' : 'text-zinc-500'
                 }`}>
                   {index + 1}
                 </span>
 
-                {/* Driver Headshot or Number Badge */}
+                {/* Driver Headshot */}
                 <div className="relative h-8 w-8 rounded-full overflow-hidden border border-white/[0.1] bg-black/40 shrink-0">
-                  {driver.headshot_url ? (
+                  {headshotUrl ? (
                     <img
-                      src={driver.headshot_url}
+                      src={headshotUrl}
                       alt={driver.broadcast_name}
-                      className="h-full w-full object-cover"
+                      className="h-full w-full object-cover object-top"
                       onError={(e) => {
-                        (e.target as HTMLElement).style.display = 'none';
+                        (e.target as HTMLImageElement).style.display = 'none';
+                        // Show fallback number badge
+                        const parent = (e.target as HTMLImageElement).parentElement;
+                        if (parent) {
+                          const fallback = document.createElement('div');
+                          fallback.className = 'h-full w-full flex items-center justify-center text-[9px] font-bold text-white';
+                          fallback.textContent = driver.name_acronym;
+                          parent.appendChild(fallback);
+                        }
                       }}
                     />
                   ) : (
-                    <div className="h-full w-full flex items-center justify-center font-f1-wide text-[9px] text-zinc-200">
+                    <div
+                      className="h-full w-full flex items-center justify-center text-[9px] font-bold text-white"
+                      style={{ backgroundColor: `${driver.team_colour}40` }}
+                    >
                       {driver.name_acronym}
                     </div>
                   )}
                 </div>
 
-                {/* Driver & Team Info */}
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-f1-wide shrink-0 text-[11px] tracking-wide text-white">
+                {/* Driver Name & Team */}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {/* Acronym in Display Bold */}
+                    <span className="shrink-0 text-[11px] tracking-wide text-white" style={{ fontFamily: 'Formula1-Display-Bold, Formula1-Bold, sans-serif' }}>
                       {driver.name_acronym}
                     </span>
-                    <span className="max-w-[88px] truncate text-[11px] font-semibold text-zinc-300">
-                      {driver.broadcast_name}
-                    </span>
-                    <span
-                      className="text-[9px] font-mono font-bold px-1 rounded"
-                      style={{
-                        backgroundColor: `${driver.team_colour}25`,
-                        color: driver.team_colour,
-                      }}
-                    >
-                      #{driver.driver_number}
-                    </span>
+                    {/* Flag */}
+                    {flag && (
+                      <span className="text-[13px] leading-none shrink-0" title={driver.country_code}>
+                        {flag}
+                      </span>
+                    )}
                   </div>
-                  <span className="text-[10px] font-medium text-zinc-400 truncate max-w-[130px] block">
+                  {/* Full Name */}
+                  <span className="text-[10px] text-zinc-300 truncate block leading-tight">
+                    {fullName}
+                  </span>
+                  <span className="text-[9px] font-medium text-zinc-500 truncate block leading-tight">
                     {driver.team_name}
                   </span>
                 </div>
               </div>
 
-              {/* Lap Time or Active Telemetry Pill */}
-              <div className="flex items-center gap-2">
+              {/* Lap Time or Chevron */}
+              <div className="flex items-center gap-1.5 shrink-0 ml-1">
                 {isSelected && driverLap?.lap_duration ? (
-                  <div className="flex items-center gap-1 text-[11px] font-mono font-bold text-green-400 bg-green-500/10 px-2 py-0.5 rounded border border-green-500/20">
-                    <Timer size={10} />
+                  <div className="flex items-center gap-1 text-[10px] font-mono font-bold text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded border border-green-500/20">
+                    <Timer size={9} />
                     <span>{driverLap.lap_duration.toFixed(3)}s</span>
                   </div>
                 ) : (
                   <ChevronRight
-                    size={14}
-                    className={`text-zinc-500 transition-transform ${
+                    size={13}
+                    className={`text-zinc-600 transition-transform ${
                       isSelected ? 'text-white translate-x-0.5' : 'group-hover:translate-x-0.5'
                     }`}
                   />

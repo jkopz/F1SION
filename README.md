@@ -18,7 +18,7 @@ An F1 analytics, prediction and simulation platform. F1SION combines session dat
 **Important:** The Formula 1 typeface used for driver acronyms is **proprietary** and not openly licensed.
 
 - For **personal, non-commercial use**: You can place the font files in `frontend/public/fonts/` (they will be ignored by Git)
-- For **public repositories / commercial use**: Replace with an open-source alternative (e.g., [Orbitron](https://fonts.google.com/specimen/Orbitron) or [Rajdhani](https://fonts.google.com/specimen/Rajdhani))
+- For **public repositories / commercial use**: Replace with an open-source alternative
 - The font files are **excluded from version control** via `.gitignore`
 
 ---

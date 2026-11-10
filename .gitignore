@@ -30,6 +30,9 @@ wheels/
 *fastf1_cache*/
 .cache/
 
+# Backend cache
+backend/cache/
+
 # Frontend
 node_modules/
 frontend/dist/

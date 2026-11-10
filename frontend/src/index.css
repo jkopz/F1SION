@@ -19,6 +19,15 @@
   font-display: swap;
 }
 
+/* Formula1 Display Bold — same file, registered under its official marketing name */
+@font-face {
+  font-family: 'Formula1-Display-Bold';
+  src: url('/fonts/Formula1-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 @font-face {
   font-family: 'Formula1-Wide';
   src: url('/fonts/Formula1-Wide.ttf') format('truetype');
@@ -113,20 +122,36 @@ body {
 }
 
 /* Custom scrollbars for telemetry feeds and leaderboards */
-::-webkit-scrollbar {
+::-webkit-scrollbar,
+.custom-scrollbar::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
-::-webkit-scrollbar-track {
+::-webkit-scrollbar-track,
+.custom-scrollbar::-webkit-scrollbar-track {
   background: #0d0f15;
 }
 
-::-webkit-scrollbar-thumb {
+::-webkit-scrollbar-thumb,
+.custom-scrollbar::-webkit-scrollbar-thumb {
   background: #232736;
   border-radius: 3px;
 }
 
-::-webkit-scrollbar-thumb:hover {
+::-webkit-scrollbar-thumb:hover,
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #3b4259;
+}
+
+/* Modal entrance animation (replaces tailwindcss-animate dependency) */
+@keyframes fadeInScale {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }

@@ -5,12 +5,27 @@
 [![React](https://img.shields.io/badge/React-18-61DAFB.svg)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178C6.svg)](https://www.typescriptlang.org)
 [![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3.4-38B2AC.svg)](https://tailwindcss.com)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **Beyond the race. Into the data.**
 
 An F1 analytics, prediction and simulation platform. F1SION combines session data, an interactive circuit, and (coming next) machine learning models for qualifying and race outcomes.
 
-Driver acronyms on the circuit and the grid use the Formula 1 display face in `frontend/public/fonts`. That typeface is not openly licensed — fine for a personal, non-commercial project, not for a product you ship or sell.
+---
+
+## ⚠️ Font License Notice
+
+**Important:** The Formula 1 typeface used for driver acronyms is **proprietary** and not openly licensed.
+
+- For **personal, non-commercial use**: You can place the font files in `frontend/public/fonts/` (they will be ignored by Git)
+- For **public repositories / commercial use**: Replace with an open-source alternative (e.g., [Orbitron](https://fonts.google.com/specimen/Orbitron) or [Rajdhani](https://fonts.google.com/specimen/Rajdhani))
+- The font files are **excluded from version control** via `.gitignore`
+
+---
+
+## 📜 License
+
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
 
 ---
 
@@ -49,6 +64,25 @@ flowchart TD
         API --> Preds
     end
 ```
+
+---
+
+## 🎨 Font Setup (Optional)
+
+To use the authentic Formula 1 typeface for driver acronyms:
+
+1. Create the fonts directory:
+   ```bash
+   mkdir -p frontend/public/fonts
+   ```
+2. Place the following font files in the directory:
+   - `Formula1-Regular.ttf`
+   - `Formula1-Bold.ttf`
+   - `Formula1-Wide.ttf`
+   - `Formula1-Black.ttf`
+   - `Formula1-Italic.ttf`
+
+**Note:** These fonts are proprietary. For open-source compliance, use Google Fonts alternatives like Orbitron or Rajdhani.
 
 ---
 

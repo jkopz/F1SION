@@ -33,6 +33,9 @@ wheels/
 # Backend cache
 backend/cache/
 
+# Proprietary fonts (not openly licensed)
+frontend/public/fonts/
+
 # Frontend
 node_modules/
 frontend/dist/

@@ -1,0 +1,47 @@
+# Environments
+.venv/
+venv/
+env/
+backend/.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# FastF1 cache
+*fastf1_cache*/
+.cache/
+
+# Frontend
+node_modules/
+frontend/dist/
+frontend/.next/
+frontend/build/
+
+# IDE / System
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+.env
+.env.local
+

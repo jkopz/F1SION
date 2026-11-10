@@ -1,0 +1,132 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Official Formula 1 Typefaces */
+@font-face {
+  font-family: 'Formula1';
+  src: url('/fonts/Formula1-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Formula1-Bold';
+  src: url('/fonts/Formula1-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Formula1-Wide';
+  src: url('/fonts/Formula1-Wide.ttf') format('truetype');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Formula1-Black';
+  src: url('/fonts/Formula1-Black.ttf') format('truetype');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: #07080b;
+}
+
+/* Team-coloured ambient blooms that drift and pulse with the selected driver */
+.livery-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(72px);
+  opacity: 0.2;
+  animation: livery-drift 16s ease-in-out infinite, livery-pulse 7s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.livery-orb-a {
+  width: 460px;
+  height: 460px;
+  top: -120px;
+  left: 12%;
+}
+
+.livery-orb-b {
+  width: 380px;
+  height: 380px;
+  right: 4%;
+  bottom: -90px;
+  animation-delay: -5s, -2.4s;
+}
+
+.livery-orb-c {
+  width: 260px;
+  height: 260px;
+  top: 38%;
+  left: 48%;
+  animation-delay: -9s, -3.6s;
+}
+
+@keyframes livery-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(56px, -42px, 0) scale(1.14);
+  }
+}
+
+@keyframes livery-pulse {
+  0%,
+  100% {
+    opacity: 0.14;
+  }
+  50% {
+    opacity: 0.34;
+  }
+}
+
+.circuit-stage {
+  background:
+    radial-gradient(ellipse at 50% 58%, rgba(255, 255, 255, 0.05), transparent 58%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 40%);
+}
+
+.circuit-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 36px 36px;
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 78%);
+}
+
+/* Custom scrollbars for telemetry feeds and leaderboards */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0d0f15;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #232736;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3b4259;
+}

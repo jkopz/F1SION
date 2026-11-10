@@ -493,7 +493,7 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
                 <rect
                   x="0"
                   y="0"
-                  width="54"
+                  width="36"
                   height="18"
                   rx="9"
                   fill="rgba(11,13,19,0.92)"
@@ -501,7 +501,7 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
                   strokeWidth="1.2"
                 />
                 <text
-                  x="7"
+                  x="5"
                   y="13"
                   fill="#ffffff"
                   fontSize="10"

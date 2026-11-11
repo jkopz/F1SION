@@ -10,6 +10,7 @@ import {
   fetchTrackLayout,
   shutdownServer,
 } from './services/api';
+import { formatTimeMMSS } from './utils/driver';
 import { Driver, DriverLap, Session, TrackLayout } from './types/f1';
 import { Activity, Zap, Cpu, Sparkles, ChevronRight, Power, CheckCircle, AlertTriangle } from 'lucide-react';
 
@@ -49,22 +50,34 @@ export const App: React.FC = () => {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
   const [driverLap, setDriverLap] = useState<DriverLap | null>(null);
+  const [fastestLaps, setFastestLaps] = useState<Map<number, number>>(new Map());
   const [activeTab, setActiveTab] = useState<string>('qualifying');
   const [error, setError] = useState<string | null>(null);
   const [showShutdownModal, setShowShutdownModal] = useState<boolean>(false);
   const [isShutDown, setIsShutDown] = useState<boolean>(false);
 
-  // 1. Initial load: fetch 2024 Qualifying sessions
+  // 1. Initial load: fetch 2026 Qualifying sessions only
   useEffect(() => {
     async function loadInitialData() {
       try {
-        const fetchedSessions = await fetchSessions(2024, 'Qualifying');
-        setSessions(fetchedSessions);
+        // Fetch only 2026 sessions
+        const sessions2026 = await fetchSessions(2026, 'Qualifying');
+        
+        // Filter out sessions that haven't happened yet (date_start > now)
+        const now = new Date();
+        const pastSessions = sessions2026.filter(s => {
+          const sessionDate = new Date(s.date_start);
+          return sessionDate <= now;
+        });
+        
+        // Sort by date (newest first)
+        const sortedSessions = pastSessions
+          .sort((a, b) => b.date_start.localeCompare(a.date_start));
+        
+        setSessions(sortedSessions);
 
-        const initial =
-          fetchedSessions.find((s) => s.circuit_short_name === 'Monza') ||
-          fetchedSessions[0];
-
+        // Select most recent past session by default
+        const initial = sortedSessions[0] || null;
         if (initial) {
           setSelectedSession(initial);
         }
@@ -97,22 +110,26 @@ export const App: React.FC = () => {
         ]);
 
         setLayout(trackData);
-        setDrivers(driverList);
+        
+        // Sort drivers by fastest lap time (slowest to fastest, then reverse for descending)
+        const driversWithTimes = driverList.map(driver => ({
+          driver,
+          lapTime: fastestLaps.get(driver.driver_number) || Infinity
+        }));
+        
+        // Sort by lap time ascending (fastest first), but we want fastest at top
+        // So we sort by lapTime ascending, then reverse to get fastest first
+        const sortedDrivers = driversWithTimes
+          .sort((a, b) => a.lapTime - b.lapTime)
+          .map(item => item.driver);
+        
+        setDrivers(sortedDrivers);
+        setFastestLaps(fastestLaps);
 
-        if (driverList.length > 0) {
-          // Auto-select the driver with the overall fastest lap time
-          let bestDriver = driverList[0];
-          let bestTime = Infinity;
-
-          for (const driver of driverList) {
-            const lapTime = fastestLaps.get(driver.driver_number);
-            if (lapTime !== undefined && lapTime < bestTime) {
-              bestTime = lapTime;
-              bestDriver = driver;
-            }
-          }
-
-          setSelectedDriver(bestDriver);
+        if (sortedDrivers.length > 0) {
+          // Auto-select the driver with the fastest lap time for all sessions
+          // This ensures autoplay always shows the quickest driver
+          setSelectedDriver(sortedDrivers[0]);
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Error loading session telemetry';
@@ -216,7 +233,7 @@ export const App: React.FC = () => {
         sessions={sessions}
         selectedSession={selectedSession}
         onSelectSession={setSelectedSession}
-        year={2024}
+        year={selectedSession?.year || 2026}
         activeTab={activeTab}
         onSelectTab={setActiveTab}
         onShutdownRequest={() => setShowShutdownModal(true)}
@@ -258,7 +275,7 @@ export const App: React.FC = () => {
             <div>
               <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider block">SESSION POLE</span>
               <span className="text-xs font-mono font-bold text-white">
-                {layout?.lap_duration ? `${layout.lap_duration.toFixed(3)}s` : '--.---'}
+                {layout?.lap_duration ? formatTimeMMSS(layout.lap_duration) : '--.---'}
               </span>
             </div>
           </div>
@@ -270,7 +287,7 @@ export const App: React.FC = () => {
             <div>
               <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider block">ACTIVE DRIVER LAP</span>
               <span className="text-xs font-mono font-bold text-cyan-400">
-                {driverLap?.lap_duration ? `${driverLap.lap_duration.toFixed(3)}s` : 'CALCULATING...'}
+                {driverLap?.lap_duration ? formatTimeMMSS(driverLap.lap_duration) : 'CALCULATING...'}
               </span>
             </div>
           </div>
@@ -298,6 +315,7 @@ export const App: React.FC = () => {
               driverLap={driverLap}
               circuitName={selectedSession?.circuit_short_name}
               countryName={selectedSession?.country_name}
+              error={error}
             />
           </div>
 
@@ -306,6 +324,7 @@ export const App: React.FC = () => {
             <Leaderboard
               drivers={drivers}
               selectedDriver={selectedDriver}
+              driverLaps={fastestLaps}
               driverLap={driverLap}
               onSelectDriver={setSelectedDriver}
             />

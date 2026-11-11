@@ -94,8 +94,10 @@ async def get_track_layout(session_key: int) -> TrackLayoutResponse:
     except HTTPException:
         raise
     except Exception as exc:
+        # Return 404 for any error (no track data available) instead of 500
         raise HTTPException(
-            status_code=500, detail=f"Failed to extract track layout: {str(exc)}"
+            status_code=404,
+            detail=f"No track data available for session {session_key}: {str(exc)}"
         ) from exc
 
 
@@ -103,33 +105,79 @@ async def get_track_layout(session_key: int) -> TrackLayoutResponse:
     "/sessions/{session_key}/drivers",
     response_model=list[DriverResponse],
     summary="List session drivers",
-    description="Retrieves drivers, liveries, and team identifiers for a session.",
+    description="Retrieves drivers sorted by qualifying/race position with liveries and team identifiers.",
 )
 async def get_drivers(session_key: int) -> list[DriverResponse]:
-    """Retrieves all participating drivers and normalized team colors."""
+    """Retrieves all participating drivers sorted by position, with normalized team colors."""
     try:
+        # Try to get drivers first (always needed)
         raw_drivers = await client.get_drivers(session_key)
+        
+        # Try to get results (contains position data for qualifying/race) - may not exist
+        results = []
+        try:
+            results = await client.get_results(session_key)
+        except Exception:
+            # Results endpoint may return 404 for some sessions - that's fine, just continue without positions
+            results = []
+        
+        # Create a mapping from driver_number to driver details
+        driver_map = {d.get("driver_number"): d for d in raw_drivers}
+        
+        # Sort drivers by position from results
         formatted: list[DriverResponse] = []
-
-        for d in raw_drivers:
-            colour = d.get("team_colour")
-            if colour and not colour.startswith("#"):
-                colour = f"#{colour}"
-            elif not colour:
-                colour = "#E10600"  # Official F1 red fallback
-
-            formatted.append(
-                DriverResponse(
-                    driver_number=d.get("driver_number", 0),
-                    broadcast_name=d.get("broadcast_name", "UNKNOWN"),
-                    full_name=d.get("full_name"),
-                    name_acronym=d.get("name_acronym", "UNK"),
-                    team_name=d.get("team_name", "Independent"),
-                    team_colour=colour,
-                    headshot_url=d.get("headshot_url"),
-                    country_code=d.get("country_code"),
+        used_drivers = set()
+        
+        # First pass: add drivers from results in position order
+        for r in results:
+            driver_number = r.get("driver_number")
+            if driver_number in driver_map and driver_number not in used_drivers:
+                d = driver_map[driver_number]
+                colour = d.get("team_colour") or r.get("team_colour")
+                if colour and not colour.startswith("#"):
+                    colour = f"#{colour}"
+                elif not colour:
+                    colour = "#E10600"  # Official F1 red fallback
+                
+                formatted.append(
+                    DriverResponse(
+                        driver_number=driver_number,
+                        broadcast_name=d.get("broadcast_name", "UNKNOWN"),
+                        full_name=d.get("full_name"),
+                        name_acronym=d.get("name_acronym", "UNK"),
+                        team_name=d.get("team_name", r.get("team_name", "Independent")),
+                        team_colour=colour,
+                        headshot_url=d.get("headshot_url"),
+                        country_code=d.get("country_code"),
+                        position=r.get("position"),
+                    )
                 )
-            )
+                used_drivers.add(driver_number)
+        
+        # Second pass: add any remaining drivers not in results
+        for d in raw_drivers:
+            driver_number = d.get("driver_number")
+            if driver_number not in used_drivers:
+                colour = d.get("team_colour")
+                if colour and not colour.startswith("#"):
+                    colour = f"#{colour}"
+                elif not colour:
+                    colour = "#E10600"
+                
+                formatted.append(
+                    DriverResponse(
+                        driver_number=driver_number,
+                        broadcast_name=d.get("broadcast_name", "UNKNOWN"),
+                        full_name=d.get("full_name"),
+                        name_acronym=d.get("name_acronym", "UNK"),
+                        team_name=d.get("team_name", "Independent"),
+                        team_colour=colour,
+                        headshot_url=d.get("headshot_url"),
+                        country_code=d.get("country_code"),
+                        position=None,
+                    )
+                )
+        
         return formatted
     except Exception as exc:
         raise HTTPException(

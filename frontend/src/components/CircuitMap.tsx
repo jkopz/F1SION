@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { TrackLayout, Driver, DriverLap } from '../types/f1';
-import { Play, Pause, RotateCcw, FastForward, Flag, Compass } from 'lucide-react';
+import { Play, Pause, RotateCcw, FastForward, Flag, Compass, Pin } from 'lucide-react';
 import { cleanHeadshotUrl, formatDriverName, getCountryFlag } from '../utils/driver';
 
 interface CircuitMapProps {
@@ -157,33 +157,31 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
     };
   }, [layout]);
 
-  // Smooth animation loop using requestAnimationFrame
-  // Optimized to prevent jank and ensure consistent frame timing
+  // Real-time animation loop using requestAnimationFrame
+  // Uses actual elapsed time to ensure 1:1 timing (1 second in lap = 1 second real time)
   useEffect(() => {
     if (!isPlaying || isScrubbing || mappedPoints.length < 2) return;
 
     let animId: number;
-    let lastTime = performance.now();
-    let lastUpdateTime = 0;
-    const minFrameInterval = 16; // ~60fps max
+    let lastUpdateTime = performance.now();
 
     const tick = (time: number) => {
-      const deltaSeconds = Math.max(0, (time - lastTime) / 1000);
-      lastTime = time;
-
-      // Throttle updates to prevent excessive re-renders
-      if (time - lastUpdateTime < minFrameInterval) {
-        animId = requestAnimationFrame(tick);
-        return;
+      // Calculate time elapsed since last update (not since last tick)
+      const elapsedMs = time - lastUpdateTime;
+      
+      // Only update if enough time has passed or if we're falling behind
+      // This ensures real-time playback: 1 second of lap time = 1 second real time
+      if (elapsedMs >= 0) {
+        const elapsedSeconds = elapsedMs / 1000;
+        const progressStep = (elapsedSeconds * playbackSpeed) / totalLapDuration;
+        
+        lastUpdateTime = time;
+        
+        setProgress((prev) => {
+          const next = (Number.isFinite(prev) ? prev : 0) + progressStep;
+          return next >= 1 ? next % 1 : next;
+        });
       }
-      lastUpdateTime = time;
-
-      // Increment progress safely with frame-time compensation
-      const progressStep = (deltaSeconds / totalLapDuration) * playbackSpeed;
-      setProgress((prev) => {
-        const next = (Number.isFinite(prev) ? prev : 0) + progressStep;
-        return next >= 1 ? next % 1 : next;
-      });
 
       animId = requestAnimationFrame(tick);
     };
@@ -616,11 +614,25 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
                 <p className="text-[9px] text-white/50 truncate max-w-[130px]">
                   {selectedDriver?.team_name}
                 </p>
-                <div className="flex items-center gap-2 pt-0.5 font-mono text-[10px] text-white/70">
-                  <span>⚡ <strong className="text-white">{currentSpeed}</strong> km/h</span>
-                  <span className="text-white/30">•</span>
-                  <span>S{currentSector}</span>
-                  {isPinned && <span className="text-white/60">• PINNED</span>}
+                {/* Sector times display */}
+                <div className="flex items-center gap-2 pt-0.5">
+                  {/* Sector 1 */}
+                  <div className="flex flex-col px-2 py-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10">
+                    <span className="text-[8px] font-mono font-bold text-cyan-400">SECTOR 1</span>
+                    <span className="text-[10px] font-mono font-bold text-white">{s1Time.toFixed(3)}s</span>
+                  </div>
+                  {/* Sector 2 */}
+                  <div className="flex flex-col px-2 py-1 rounded-lg border border-purple-500/30 bg-purple-500/10">
+                    <span className="text-[8px] font-mono font-bold text-purple-400">SECTOR 2</span>
+                    <span className="text-[10px] font-mono font-bold text-white">{s2Time.toFixed(3)}s</span>
+                  </div>
+                  {/* Sector 3 */}
+                  <div className="flex flex-col px-2 py-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10">
+                    <span className="text-[8px] font-mono font-bold text-emerald-400">SECTOR 3</span>
+                    <span className="text-[10px] font-mono font-bold text-white">{s3Time.toFixed(3)}s</span>
+                  </div>
+                  {/* Pinned indicator as icon */}
+                  {isPinned && <Pin size={12} className="text-emerald-400 ml-1 shrink-0" />}
                 </div>
               </div>
             </div>

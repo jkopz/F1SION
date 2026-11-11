@@ -39,6 +39,7 @@ class DriverResponse(BaseModel):
     team_colour: str = Field(..., description="Team livery color in HEX format (#RRGGBB)")
     headshot_url: Optional[str] = Field(None, description="Official driver portrait URL")
     country_code: Optional[str] = Field(None, description="Country code (e.g. NLD, GBR)")
+    position: Optional[int] = Field(None, description="Qualifying or race position")
 
 
 class TrackPoint(BaseModel):

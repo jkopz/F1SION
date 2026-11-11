@@ -26,6 +26,7 @@ export interface Driver {
   team_colour: string;
   headshot_url?: string;
   country_code?: string;
+  position?: number;
 }
 
 export interface TrackPoint {

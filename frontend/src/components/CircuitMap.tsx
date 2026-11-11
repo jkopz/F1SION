@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { TrackLayout, Driver, DriverLap } from '../types/f1';
-import { Play, Pause, RotateCcw, FastForward, Flag, Compass, Pin } from 'lucide-react';
-import { cleanHeadshotUrl, formatDriverName, getCountryFlag } from '../utils/driver';
+import { Play, Pause, RotateCcw, FastForward, Compass, Pin, AlertTriangle } from 'lucide-react';
+import { cleanHeadshotUrl, formatDriverName, getCountryFlag, formatTimeMMSS } from '../utils/driver';
 
 interface CircuitMapProps {
   layout: TrackLayout | null;
@@ -9,6 +9,7 @@ interface CircuitMapProps {
   driverLap: DriverLap | null;
   circuitName?: string;
   countryName?: string;
+  error?: string | null;
 }
 
 export const CircuitMap: React.FC<CircuitMapProps> = ({
@@ -17,6 +18,7 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
   driverLap,
   circuitName,
   countryName,
+  error,
 }) => {
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [progress, setProgress] = useState<number>(0); // 0.0 to 1.0
@@ -24,6 +26,8 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
   const [isHoveringCar, setIsHoveringCar] = useState<boolean>(false);
   const [isPinned, setIsPinned] = useState<boolean>(false);
   const [isScrubbing, setIsScrubbing] = useState<boolean>(false);
+  // Track completed sector times (don't reset when sector changes)
+  const [sectorTimes, setSectorTimes] = useState<{s1?: number, s2?: number, s3?: number}>({});
 
   // Safe lap duration
   const rawDuration = driverLap?.lap_duration || layout?.lap_duration;
@@ -50,7 +54,32 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
     setProgress(0);
     setIsPlaying(true);
     setIsPinned(false);
+    setSectorTimes({});
   }, [selectedDriver?.driver_number]);
+
+  // Track sector completion times
+  useEffect(() => {
+    if (!isPlaying || !totalLapDuration) return;
+    
+    const newSectorTimes = {...sectorTimes};
+    
+    // Check if we just completed sector 1
+    if (safeProgress > s1Fraction && !newSectorTimes.s1) {
+      newSectorTimes.s1 = s1Time;
+    }
+    // Check if we just completed sector 2
+    if (safeProgress > s2Fraction && !newSectorTimes.s2) {
+      newSectorTimes.s2 = s2Time;
+    }
+    // Check if we just completed sector 3
+    if (safeProgress >= 0.999 && !newSectorTimes.s3) {
+      newSectorTimes.s3 = s3Time;
+    }
+    
+    if (JSON.stringify(newSectorTimes) !== JSON.stringify(sectorTimes)) {
+      setSectorTimes(newSectorTimes);
+    }
+  }, [safeProgress, s1Fraction, s2Fraction, s1Time, s2Time, s3Time, sectorTimes, isPlaying, totalLapDuration]);
 
   // SVG coordinate transformation
   const SVG_WIDTH = 1000;
@@ -190,63 +219,43 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
     return () => cancelAnimationFrame(animId);
   }, [isPlaying, isScrubbing, mappedPoints.length, totalLapDuration, playbackSpeed]);
 
-  // Combined memo for car position and speed to reduce re-renders
-  const { currentCarPos, currentSpeed } = useMemo(() => {
+  // Memo for car position only (speed removed as per requirements)
+  const currentCarPos = useMemo(() => {
     if (!mappedPoints || mappedPoints.length < 2) {
-      return { currentCarPos: null, currentSpeed: 240 };
+      return null;
     }
     
     const exactIndex = safeProgress * (mappedPoints.length - 1);
     const idx = Math.max(0, Math.min(Math.floor(exactIndex), mappedPoints.length - 2));
     const remainder = exactIndex - idx;
 
-    const p0 = mappedPoints[Math.max(0, idx - 1)];
     const p1 = mappedPoints[idx];
     const p2 = mappedPoints[idx + 1];
 
-    // Car position
-    const carPos = p1 && p2 ? {
+    return p1 && p2 ? {
       x: p1.x + (p2.x - p1.x) * remainder,
       y: p1.y + (p2.y - p1.y) * remainder,
     } : mappedPoints[0] || null;
-
-    // Speed calculation with exponential scaling for more realistic corner speeds
-    let speed = 240;
-    if (p0 && p1 && p2 && idx >= 1) {
-      const dx1 = p1.x - p0.x;
-      const dy1 = p1.y - p0.y;
-      const dx2 = p2.x - p1.x;
-      const dy2 = p2.y - p1.y;
-      
-      const crossProduct = Math.abs(dx1 * dy2 - dy1 * dx2);
-      const mag1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
-      const mag2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
-      
-      if (mag1 > 0 && mag2 > 0) {
-        // Normalized curvature: sin(theta) where theta is the angle between segments
-        const normalizedCurvature = Math.min(1, crossProduct / (mag1 * mag2));
-        
-        // Use cubic scaling to make tight corners much slower
-        const curvatureFactor = normalizedCurvature ** 3;
-        
-        // Realistic F1 speeds: 340km/h on straights, 80km/h in tight corners
-        const minSpeed = 80;
-        const maxSpeed = 340;
-        speed = Math.round(maxSpeed - curvatureFactor * (maxSpeed - minSpeed));
-      }
-    }
-
-    return { currentCarPos: carPos, currentSpeed: speed };
   }, [safeProgress, mappedPoints]);
 
-  const formatLapTime = (seconds: number) => {
-    if (!Number.isFinite(seconds)) return '0:00.000';
-    const mins = Math.floor(seconds / 60);
-    const secs = (seconds % 60).toFixed(3);
-    return `${mins}:${secs.padStart(6, '0')}`;
-  };
+
 
   const driverColor = selectedDriver?.team_colour || '#E10600';
+
+  if (error) {
+    return (
+      <div className="flex h-full min-h-[500px] w-full items-center justify-center rounded-2xl border border-white/[0.08] bg-black/40 backdrop-blur-xl">
+        <div className="flex flex-col items-center gap-3">
+          <div className="relative flex items-center justify-center">
+            <AlertTriangle className="h-8 w-8 text-yellow-500" />
+          </div>
+          <span className="text-xs font-mono tracking-widest text-zinc-400 uppercase text-center max-w-[300px]">
+            {error}
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   if (!layout) {
     return (
@@ -313,7 +322,7 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
           }`}>
             <span className="text-[9px] font-mono font-bold text-cyan-400">SECTOR 1</span>
             <span className="text-xs font-mono font-bold text-white">
-              {safeProgress > s1Fraction ? `${s1Time.toFixed(3)}s` : currentSector === 1 ? `${currentLapTime.toFixed(2)}s` : '--.---'}
+              {safeProgress > s1Fraction ? formatTimeMMSS(s1Time) : currentSector === 1 ? formatTimeMMSS(currentLapTime) : '--.---'}
             </span>
           </div>
 
@@ -327,7 +336,7 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
           }`}>
             <span className="text-[9px] font-mono font-bold text-purple-400">SECTOR 2</span>
             <span className="text-xs font-mono font-bold text-white">
-              {safeProgress > s2Fraction ? `${s2Time.toFixed(3)}s` : currentSector === 2 ? `${Math.max(0, currentLapTime - s1Time).toFixed(2)}s` : '--.---'}
+              {safeProgress > s2Fraction ? formatTimeMMSS(s2Time) : currentSector === 2 ? formatTimeMMSS(currentLapTime - s1Time) : '--.---'}
             </span>
           </div>
 
@@ -341,7 +350,7 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
           }`}>
             <span className="text-[9px] font-mono font-bold text-emerald-400">SECTOR 3</span>
             <span className="text-xs font-mono font-bold text-white">
-              {safeProgress >= 0.99 ? `${s3Time.toFixed(3)}s` : currentSector === 3 ? `${Math.max(0, currentLapTime - s1Time - s2Time).toFixed(2)}s` : '--.---'}
+              {safeProgress >= 0.99 ? formatTimeMMSS(s3Time) : currentSector === 3 ? formatTimeMMSS(currentLapTime - s1Time - s2Time) : '--.---'}
             </span>
           </div>
         </div>
@@ -535,10 +544,14 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
         {/* Hover Popover: Apple Liquid Glass Driver Card */}
         {currentCarPos && (isHoveringCar || isPinned) && (
           <div
-            className="absolute z-30 pointer-events-none transition-all duration-200 transform -translate-x-1/2 -translate-y-[130%]"
+            className="absolute z-30 pointer-events-none transition-all duration-200"
             style={{
-              left: `${(currentCarPos.x / SVG_WIDTH) * 100}%`,
-              top: `${(currentCarPos.y / SVG_HEIGHT) * 100}%`,
+              // Position card beside the car (right side by default, left side if near right edge)
+              left: `${currentCarPos.x / SVG_WIDTH > 0.75 
+                ? Math.max(5, (currentCarPos.x / SVG_WIDTH) * 100 - 18)
+                : Math.min(85, (currentCarPos.x / SVG_WIDTH) * 100 + 12)}%`,
+              top: `${Math.max(10, Math.min(90, (currentCarPos.y / SVG_HEIGHT) * 100))}%`,
+              transform: 'translateY(-50%)',
             }}
           >
             {/* Liquid Glass card — layered frosted glass with coloured tint */}
@@ -614,26 +627,48 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
                 <p className="text-[9px] text-white/50 truncate max-w-[130px]">
                   {selectedDriver?.team_name}
                 </p>
-                {/* Sector times display */}
-                <div className="flex items-center gap-2 pt-0.5">
+                {/* Overall lap time (running) */}
+                <div className="text-[11px] font-mono font-bold text-white pt-0.5">
+                  {formatTimeMMSS(currentLapTime)}
+                </div>
+                {/* Dynamic sector times display - keep completed times, show running time for current sector */}
+                <div className="flex items-center gap-2 pt-1">
                   {/* Sector 1 */}
-                  <div className="flex flex-col px-2 py-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10">
+                  <div className={`flex flex-col px-2 py-1 rounded-lg border transition-all ${
+                    currentSector === 1
+                      ? 'border-cyan-500/60 bg-cyan-500/20 shadow-[0_0_10px_rgba(6,182,212,0.3)]'
+                      : 'border-cyan-500/30 bg-cyan-500/10'
+                  }`}>
                     <span className="text-[8px] font-mono font-bold text-cyan-400">SECTOR 1</span>
-                    <span className="text-[10px] font-mono font-bold text-white">{s1Time.toFixed(3)}s</span>
+                    <span className="text-[10px] font-mono font-bold text-white">
+                      {currentSector === 1 ? formatTimeMMSS(currentLapTime) : (sectorTimes.s1 ? formatTimeMMSS(sectorTimes.s1) : '--.---')}
+                    </span>
                   </div>
                   {/* Sector 2 */}
-                  <div className="flex flex-col px-2 py-1 rounded-lg border border-purple-500/30 bg-purple-500/10">
+                  <div className={`flex flex-col px-2 py-1 rounded-lg border transition-all ${
+                    currentSector === 2
+                      ? 'border-purple-500/60 bg-purple-500/20 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
+                      : 'border-purple-500/30 bg-purple-500/10'
+                  }`}>
                     <span className="text-[8px] font-mono font-bold text-purple-400">SECTOR 2</span>
-                    <span className="text-[10px] font-mono font-bold text-white">{s2Time.toFixed(3)}s</span>
+                    <span className="text-[10px] font-mono font-bold text-white">
+                      {currentSector === 2 ? formatTimeMMSS(currentLapTime - s1Time) : (sectorTimes.s2 ? formatTimeMMSS(sectorTimes.s2) : '--.---')}
+                    </span>
                   </div>
                   {/* Sector 3 */}
-                  <div className="flex flex-col px-2 py-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10">
+                  <div className={`flex flex-col px-2 py-1 rounded-lg border transition-all ${
+                    currentSector === 3
+                      ? 'border-emerald-500/60 bg-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
+                      : 'border-emerald-500/30 bg-emerald-500/10'
+                  }`}>
                     <span className="text-[8px] font-mono font-bold text-emerald-400">SECTOR 3</span>
-                    <span className="text-[10px] font-mono font-bold text-white">{s3Time.toFixed(3)}s</span>
+                    <span className="text-[10px] font-mono font-bold text-white">
+                      {currentSector === 3 ? formatTimeMMSS(currentLapTime - s1Time - s2Time) : (sectorTimes.s3 ? formatTimeMMSS(sectorTimes.s3) : '--.---')}
+                    </span>
                   </div>
-                  {/* Pinned indicator as icon */}
-                  {isPinned && <Pin size={12} className="text-emerald-400 ml-1 shrink-0" />}
                 </div>
+                {/* Pin indicator icon - top right */}
+                {isPinned && <Pin size={14} className="absolute top-2 right-2 text-emerald-400 shrink-0" />}
               </div>
             </div>
           </div>
@@ -753,12 +788,7 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
           {/* Time & Telemetry Readouts */}
           <div className="flex items-center gap-4 font-mono text-xs">
             <div className="text-zinc-400">
-              TIME: <span className="text-white font-bold">{formatLapTime(currentLapTime)}</span> / {formatLapTime(totalLapDuration)}
-            </div>
-            <div className="hidden sm:flex items-center gap-2 pl-4 border-l border-white/[0.08]">
-              <Flag size={14} className="text-yellow-400" />
-              <span className="text-zinc-400">SPEED:</span>
-              <span className="text-white font-bold">{currentSpeed} km/h</span>
+              TIME: <span className="text-white font-bold">{formatTimeMMSS(currentLapTime)}</span> / {formatTimeMMSS(totalLapDuration)}
             </div>
           </div>
         </div>

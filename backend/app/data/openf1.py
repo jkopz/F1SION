@@ -108,6 +108,10 @@ class OpenF1Client:
         """Retrieves all participating drivers for a specific session."""
         return await self.get("drivers", {"session_key": session_key})
 
+    async def get_results(self, session_key: int) -> list[dict[str, Any]]:
+        """Retrieves race/qualifying results with positions for a specific session."""
+        return await self.get("results", {"session_key": session_key})
+
     async def get_laps(
         self, session_key: int, driver_number: Optional[int] = None
     ) -> list[dict[str, Any]]:

@@ -34,7 +34,7 @@ BACKEND_PID=$!
 cd ..
 
 # 3. Wait for backend to be ready
-sleep 1.2
+sleep 2
 
 # 4. Start Frontend with strict port 5173
 echo "Starting Vite frontend on http://localhost:5173 ..."
@@ -44,10 +44,27 @@ npx vite --host 127.0.0.1 --port 5173 --strictPort &
 FRONTEND_PID=$!
 cd ..
 
+# 5. Wait for frontend to be ready
+sleep 2
+
 echo ""
 echo "✅ Both servers are online!"
 echo "   • Frontend Dashboard:  http://localhost:5173"
 echo "   • Backend API Docs:    http://127.0.0.1:8000/docs"
+echo ""
+echo "🌐 Opening browser automatically..."
+
+# Auto-open browser (works on macOS, Linux, and Windows with appropriate command)
+if command -v open &> /dev/null; then
+    open "http://localhost:5173"
+elif command -v xdg-open &> /dev/null; then
+    xdg-open "http://localhost:5173"
+elif command -v start &> /dev/null; then
+    start "" "http://localhost:5173"
+else
+    echo "   Could not auto-open browser. Please visit http://localhost:5173 manually."
+fi
+
 echo ""
 echo "👉 HOW TO STOP PROPERLY:"
 echo "   1. Press Ctrl + C in this terminal window"

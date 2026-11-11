@@ -1,11 +1,12 @@
 import React from 'react';
 import { Driver, DriverLap } from '../types/f1';
 import { Trophy, ChevronRight, Timer } from 'lucide-react';
-import { cleanHeadshotUrl, formatDriverName, getCountryFlag } from '../utils/driver';
+import { cleanHeadshotUrl, formatDriverName, formatTimeMMSS, getCountryFlag } from '../utils/driver';
 
 interface LeaderboardProps {
   drivers: Driver[];
   selectedDriver: Driver | null;
+  driverLaps: Map<number, number>;
   driverLap: DriverLap | null;
   onSelectDriver: (driver: Driver) => void;
 }
@@ -13,6 +14,7 @@ interface LeaderboardProps {
 export const Leaderboard: React.FC<LeaderboardProps> = ({
   drivers,
   selectedDriver,
+  driverLaps,
   driverLap,
   onSelectDriver,
 }) => {
@@ -39,7 +41,6 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
       <div className="flex-1 overflow-y-auto p-3 space-y-1.5 custom-scrollbar">
         {drivers.map((driver, index) => {
           const isSelected = selectedDriver?.driver_number === driver.driver_number;
-          const isPole = index === 0;
           const headshotUrl = cleanHeadshotUrl(driver.headshot_url);
           const flag = getCountryFlag(driver.country_code);
           const fullName = formatDriverName(driver.full_name, driver.broadcast_name);
@@ -66,9 +67,9 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
               />
 
               <div className="flex items-center gap-2.5 pl-2 min-w-0">
-                {/* Position */}
+                {/* Position (based on lap time ranking, not quali position) */}
                 <span className={`w-4 shrink-0 text-center font-mono text-xs font-bold ${
-                  isPole ? 'text-yellow-400' : 'text-zinc-500'
+                  index === 0 ? 'text-yellow-400' : 'text-zinc-500'
                 }`}>
                   {index + 1}
                 </span>
@@ -131,15 +132,23 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
                 {isSelected && driverLap?.lap_duration ? (
                   <div className="flex items-center gap-1 text-[10px] font-mono font-bold text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded border border-green-500/20">
                     <Timer size={9} />
-                    <span>{driverLap.lap_duration.toFixed(3)}s</span>
+                    <span>{formatTimeMMSS(driverLap.lap_duration)}</span>
                   </div>
                 ) : (
-                  <ChevronRight
-                    size={13}
-                    className={`text-zinc-600 transition-transform ${
-                      isSelected ? 'text-white translate-x-0.5' : 'group-hover:translate-x-0.5'
-                    }`}
-                  />
+                  <>
+                    {driverLaps.get(driver.driver_number) !== undefined ? (
+                      <span className="text-[10px] font-mono font-bold text-zinc-300 px-1.5 py-0.5 rounded">
+                        {formatTimeMMSS(driverLaps.get(driver.driver_number) || 0)}
+                      </span>
+                    ) : (
+                      <ChevronRight
+                        size={13}
+                        className={`text-zinc-600 transition-transform ${
+                          isSelected ? 'text-white translate-x-0.5' : 'group-hover:translate-x-0.5'
+                        }`}
+                      />
+                    )}
+                  </>
                 )}
               </div>
             </button>

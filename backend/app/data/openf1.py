@@ -214,7 +214,17 @@ class OpenF1Client:
         )
 
         if not locs:
-            return {"points": [], "bounds": {}, "sectors": {}}
+            # Try to get location data without driver_number filter
+            locs = await self.get(
+                "location",
+                {
+                    "session_key": session_key,
+                    "date>=": start_str,
+                    "date<=": end_str,
+                },
+            )
+            if not locs:
+                return {"points": [], "bounds": {}, "sectors": {}}
 
         # Filter out static/zero points and annotate with sector ID
         raw_points: list[dict[str, Any]] = []
@@ -245,7 +255,50 @@ class OpenF1Client:
             )
 
         if len(raw_points) < 10:
-            return {"points": [], "bounds": {}, "sectors": {}}
+            # Not enough points - try with a different driver
+            all_drivers = await self.get_drivers(session_key)
+            for driver in all_drivers:
+                if driver.get("driver_number") == ref_driver:
+                    continue
+                driver_num = driver.get("driver_number")
+                locs = await self.get(
+                    "location",
+                    {
+                        "session_key": session_key,
+                        "driver_number": driver_num,
+                        "date>=": start_str,
+                        "date<=": end_str,
+                    },
+                )
+                if locs:
+                    # Reprocess with new locs
+                    new_points: list[dict[str, Any]] = []
+                    for p in locs:
+                        if p.get("x") == 0 and p.get("y") == 0:
+                            continue
+                        try:
+                            p_dt = datetime.fromisoformat(p["date"])
+                        except Exception:
+                            p_dt = start_dt
+                        if p_dt <= s1_end:
+                            sector = 1
+                        elif p_dt <= s2_end:
+                            sector = 2
+                        else:
+                            sector = 3
+                        new_points.append({
+                            "x": p["x"],
+                            "y": p["y"],
+                            "z": p.get("z", 0),
+                            "sector": sector,
+                            "date": p.get("date"),
+                        })
+                    if len(new_points) >= 10:
+                        raw_points = new_points
+                        break
+            
+            if len(raw_points) < 10:
+                return {"points": [], "bounds": {}, "sectors": {}}
 
         xs = [p["x"] for p in raw_points]
         ys = [p["y"] for p in raw_points]

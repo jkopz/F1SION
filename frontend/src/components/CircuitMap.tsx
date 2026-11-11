@@ -212,7 +212,7 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
       y: p1.y + (p2.y - p1.y) * remainder,
     } : mappedPoints[0] || null;
 
-    // Speed calculation
+    // Speed calculation with exponential scaling for more realistic corner speeds
     let speed = 240;
     if (p0 && p1 && p2 && idx >= 1) {
       const dx1 = p1.x - p0.x;
@@ -225,8 +225,16 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
       const mag2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
       
       if (mag1 > 0 && mag2 > 0) {
+        // Normalized curvature: sin(theta) where theta is the angle between segments
         const normalizedCurvature = Math.min(1, crossProduct / (mag1 * mag2));
-        speed = Math.round(340 - normalizedCurvature * 250);
+        
+        // Use cubic scaling to make tight corners much slower
+        const curvatureFactor = normalizedCurvature ** 3;
+        
+        // Realistic F1 speeds: 340km/h on straights, 80km/h in tight corners
+        const minSpeed = 80;
+        const maxSpeed = 340;
+        speed = Math.round(maxSpeed - curvatureFactor * (maxSpeed - minSpeed));
       }
     }
 

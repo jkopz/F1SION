@@ -157,18 +157,28 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
     };
   }, [layout]);
 
-  // Robust animation loop using requestAnimationFrame
+  // Smooth animation loop using requestAnimationFrame
+  // Optimized to prevent jank and ensure consistent frame timing
   useEffect(() => {
     if (!isPlaying || isScrubbing || mappedPoints.length < 2) return;
 
     let animId: number;
     let lastTime = performance.now();
+    let lastUpdateTime = 0;
+    const minFrameInterval = 16; // ~60fps max
 
     const tick = (time: number) => {
       const deltaSeconds = Math.max(0, (time - lastTime) / 1000);
       lastTime = time;
 
-      // Increment progress safely
+      // Throttle updates to prevent excessive re-renders
+      if (time - lastUpdateTime < minFrameInterval) {
+        animId = requestAnimationFrame(tick);
+        return;
+      }
+      lastUpdateTime = time;
+
+      // Increment progress safely with frame-time compensation
       const progressStep = (deltaSeconds / totalLapDuration) * playbackSpeed;
       setProgress((prev) => {
         const next = (Number.isFinite(prev) ? prev : 0) + progressStep;
@@ -182,43 +192,45 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
     return () => cancelAnimationFrame(animId);
   }, [isPlaying, isScrubbing, mappedPoints.length, totalLapDuration, playbackSpeed]);
 
-  // Interpolated car position with full bounds guards
-  const currentCarPos = useMemo(() => {
-    if (!mappedPoints || mappedPoints.length < 2) return null;
+  // Combined memo for car position and speed to reduce re-renders
+  const { currentCarPos, currentSpeed } = useMemo(() => {
+    if (!mappedPoints || mappedPoints.length < 2) {
+      return { currentCarPos: null, currentSpeed: 240 };
+    }
+    
     const exactIndex = safeProgress * (mappedPoints.length - 1);
     const idx = Math.max(0, Math.min(Math.floor(exactIndex), mappedPoints.length - 2));
     const remainder = exactIndex - idx;
 
+    const p0 = mappedPoints[Math.max(0, idx - 1)];
     const p1 = mappedPoints[idx];
     const p2 = mappedPoints[idx + 1];
 
-    if (!p1 || !p2) return mappedPoints[0] || null;
-
-    return {
+    // Car position
+    const carPos = p1 && p2 ? {
       x: p1.x + (p2.x - p1.x) * remainder,
       y: p1.y + (p2.y - p1.y) * remainder,
-    };
-  }, [safeProgress, mappedPoints]);
+    } : mappedPoints[0] || null;
 
-  // Simulated telemetry: speed in km/h based on acceleration/corners
-  const simulatedSpeed = useMemo(() => {
-    if (!mappedPoints || mappedPoints.length < 3) return 240;
-    const idx = Math.max(1, Math.min(Math.floor(safeProgress * (mappedPoints.length - 1)), mappedPoints.length - 2));
-    const p0 = mappedPoints[idx - 1];
-    const p1 = mappedPoints[idx];
-    const p2 = mappedPoints[idx + 1];
+    // Speed calculation
+    let speed = 240;
+    if (p0 && p1 && p2 && idx >= 1) {
+      const dx1 = p1.x - p0.x;
+      const dy1 = p1.y - p0.y;
+      const dx2 = p2.x - p1.x;
+      const dy2 = p2.y - p1.y;
+      
+      const crossProduct = Math.abs(dx1 * dy2 - dy1 * dx2);
+      const mag1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+      const mag2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+      
+      if (mag1 > 0 && mag2 > 0) {
+        const normalizedCurvature = Math.min(1, crossProduct / (mag1 * mag2));
+        speed = Math.round(340 - normalizedCurvature * 250);
+      }
+    }
 
-    if (!p0 || !p1 || !p2) return 240;
-
-    const dx1 = p1.x - p0.x;
-    const dy1 = p1.y - p0.y;
-    const dx2 = p2.x - p1.x;
-    const dy2 = p2.y - p1.y;
-    const curvature = Math.abs(dx1 * dy2 - dy1 * dx2);
-
-    const baseSpeed = 330;
-    const cornerSlowdown = Math.min(220, curvature * 15);
-    return Math.round(baseSpeed - cornerSlowdown);
+    return { currentCarPos: carPos, currentSpeed: speed };
   }, [safeProgress, mappedPoints]);
 
   const formatLapTime = (seconds: number) => {
@@ -597,7 +609,7 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
                   {selectedDriver?.team_name}
                 </p>
                 <div className="flex items-center gap-2 pt-0.5 font-mono text-[10px] text-white/70">
-                  <span>⚡ <strong className="text-white">{simulatedSpeed}</strong> km/h</span>
+                  <span>⚡ <strong className="text-white">{currentSpeed}</strong> km/h</span>
                   <span className="text-white/30">•</span>
                   <span>S{currentSector}</span>
                   {isPinned && <span className="text-white/60">• PINNED</span>}
@@ -726,7 +738,7 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
             <div className="hidden sm:flex items-center gap-2 pl-4 border-l border-white/[0.08]">
               <Flag size={14} className="text-yellow-400" />
               <span className="text-zinc-400">SPEED:</span>
-              <span className="text-white font-bold">{simulatedSpeed} km/h</span>
+              <span className="text-white font-bold">{currentSpeed} km/h</span>
             </div>
           </div>
         </div>

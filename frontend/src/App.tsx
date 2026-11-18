@@ -8,10 +8,11 @@ import {
   fetchFastestLapPerDriver,
   fetchSessions,
   fetchTrackLayout,
+  fetchDriverTrajectory,
   shutdownServer,
 } from './services/api';
 import { formatTimeMMSS } from './utils/driver';
-import { Driver, DriverLap, Session, TrackLayout } from './types/f1';
+import { Driver, DriverLap, DriverTrajectory, Session, TrackLayout } from './types/f1';
 import { Activity, Zap, Cpu, Sparkles, ChevronRight, Power, CheckCircle, AlertTriangle } from 'lucide-react';
 
 /** Subtle cursor-following livery glow — tuned down from the original */
@@ -50,6 +51,7 @@ export const App: React.FC = () => {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
   const [driverLap, setDriverLap] = useState<DriverLap | null>(null);
+  const [trajectory, setTrajectory] = useState<DriverTrajectory | null>(null);
   const [fastestLaps, setFastestLaps] = useState<Map<number, number>>(new Map());
   const [activeTab, setActiveTab] = useState<string>('qualifying');
   const [error, setError] = useState<string | null>(null);
@@ -90,16 +92,22 @@ export const App: React.FC = () => {
     loadInitialData();
   }, []);
 
-  // 2. When session changes: load track + drivers, then auto-select fastest driver
+  // 2. When session changes: load track + drivers, then auto-select fastest driver.
+  // Backend calls OpenF1 which rate-limits (429) during rapid session
+  // switches — retry the whole load a couple of times before surfacing an
+  // error. Cancelled on session change so late retries never clobber state.
   useEffect(() => {
     if (!selectedSession) return;
 
     const currentKey = selectedSession.session_key;
+    let cancelled = false;
 
-    async function loadSessionDetails() {
+    async function loadSessionDetails(triesRemaining: number) {
       try {
+        if (cancelled) return;
         setLayout(null);
         setDriverLap(null);
+        setTrajectory(null);
         setError(null);
 
         // Fetch track, drivers and fastest-lap data in parallel
@@ -108,6 +116,7 @@ export const App: React.FC = () => {
           fetchDrivers(currentKey),
           fetchFastestLapPerDriver(currentKey),
         ]);
+        if (cancelled) return;
 
         setLayout(trackData);
         
@@ -132,12 +141,21 @@ export const App: React.FC = () => {
           setSelectedDriver(sortedDrivers[0]);
         }
       } catch (err: unknown) {
+        if (cancelled) return;
         const message = err instanceof Error ? err.message : 'Error loading session telemetry';
-        setError(message);
+        if (triesRemaining > 0) {
+          setTimeout(() => loadSessionDetails(triesRemaining - 1), 1500);
+        } else {
+          setError(message);
+        }
       }
     }
 
-    loadSessionDetails();
+    loadSessionDetails(2);
+
+    return () => {
+      cancelled = true;
+    };
   }, [selectedSession]);
 
   // 3. When driver changes: load driver-specific fastest lap telemetry
@@ -146,13 +164,17 @@ export const App: React.FC = () => {
 
     async function loadDriverTelemetry() {
       try {
-        const lapData = await fetchDriverLap(
-          selectedSession!.session_key,
-          selectedDriver!.driver_number
-        );
-        setDriverLap(lapData);
+        // Fetch lap timings and real timestamped trajectory in parallel;
+        // trajectory may legitimately be missing (no telemetry) - fall back
+        const [lapRes, trajRes] = await Promise.allSettled([
+          fetchDriverLap(selectedSession!.session_key, selectedDriver!.driver_number),
+          fetchDriverTrajectory(selectedSession!.session_key, selectedDriver!.driver_number),
+        ]);
+        setDriverLap(lapRes.status === 'fulfilled' ? lapRes.value : null);
+        setTrajectory(trajRes.status === 'fulfilled' ? trajRes.value : null);
       } catch {
         setDriverLap(null);
+        setTrajectory(null);
       }
     }
 
@@ -313,6 +335,7 @@ export const App: React.FC = () => {
               layout={layout}
               selectedDriver={selectedDriver}
               driverLap={driverLap}
+              trajectory={trajectory}
               circuitName={selectedSession?.circuit_short_name}
               countryName={selectedSession?.country_name}
               error={error}

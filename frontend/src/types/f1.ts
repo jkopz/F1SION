@@ -69,3 +69,16 @@ export interface DriverLap {
   compound?: string;
   date_start?: string;
 }
+
+export interface TrajectoryPoint {
+  x: number; // Raw telemetry X coordinate
+  y: number; // Raw telemetry Y coordinate
+  t: number; // Elapsed seconds since lap start
+  sector: number; // 1, 2, or 3
+}
+
+export interface DriverTrajectory {
+  driver_number: number;
+  lap_duration: number;
+  points: TrajectoryPoint[];
+}

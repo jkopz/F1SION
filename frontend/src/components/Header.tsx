@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { Session } from '../types/f1';
 import { Radio, Calendar, Sparkles, Activity, Power, Zap, Lock } from 'lucide-react';
 
@@ -12,7 +12,8 @@ interface HeaderProps {
   onShutdownRequest: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({
+// Memoised: only re-renders when session/tab selection actually changes
+export const Header: React.FC<HeaderProps> = memo(function Header({
   sessions,
   selectedSession,
   onSelectSession,
@@ -20,7 +21,7 @@ export const Header: React.FC<HeaderProps> = ({
   activeTab,
   onSelectTab,
   onShutdownRequest,
-}) => {
+}) {
   const tabs = [
     { id: 'qualifying', label: 'QUALIFYING ANALYSIS', icon: Activity, locked: false },
     { id: 'race', label: 'RACE TELEMETRY', icon: Radio, locked: true, badge: 'SOON' },
@@ -127,4 +128,4 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
     </header>
   );
-};
+});

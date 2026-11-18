@@ -82,7 +82,7 @@ To use the authentic Formula 1 typeface for driver acronyms:
    - `Formula1-Black.ttf`
    - `Formula1-Italic.ttf`
 
-**Note:** These fonts are proprietary. For open-source compliance, use Google Fonts alternatives like Orbitron or Rajdhani.
+**Note:** These fonts are proprietary. For open-source compliance, use Google Fonts alternatives.
 
 ---
 

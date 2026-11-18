@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { Driver, DriverLap } from '../types/f1';
 import { Trophy, ChevronRight, Timer } from 'lucide-react';
 import { cleanHeadshotUrl, formatDriverName, formatTimeMMSS, getCountryFlag } from '../utils/driver';
@@ -11,13 +11,14 @@ interface LeaderboardProps {
   onSelectDriver: (driver: Driver) => void;
 }
 
-export const Leaderboard: React.FC<LeaderboardProps> = ({
+// Memoised: App re-renders (e.g. modal state) must not re-render every row
+export const Leaderboard: React.FC<LeaderboardProps> = memo(function Leaderboard({
   drivers,
   selectedDriver,
   driverLaps,
   driverLap,
   onSelectDriver,
-}) => {
+}) {
   return (
     <div className="flex flex-col h-full overflow-hidden rounded-2xl border border-white/[0.08] bg-gradient-to-b from-white/[0.03] to-black/60 shadow-[0_16px_40px_rgba(0,0,0,0.5)] backdrop-blur-2xl">
       {/* Header */}
@@ -157,4 +158,4 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
       </div>
     </div>
   );
-};
+});

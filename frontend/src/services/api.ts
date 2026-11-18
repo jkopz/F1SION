@@ -3,7 +3,7 @@
  * Provides typed asynchronous methods to interact with the FastAPI backend.
  */
 
-import { Driver, DriverLap, Session, TrackLayout } from '../types/f1';
+import { Driver, DriverLap, DriverTrajectory, Session, TrackLayout } from '../types/f1';
 
 const API_BASE = '/api';
 
@@ -39,6 +39,14 @@ export async function fetchDriverLap(sessionKey: number, driverNumber: number): 
   const res = await fetch(`${API_BASE}/sessions/${sessionKey}/drivers/${driverNumber}/lap`);
   if (!res.ok) {
     throw new Error(`Failed to fetch lap for driver ${driverNumber}: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function fetchDriverTrajectory(sessionKey: number, driverNumber: number): Promise<DriverTrajectory> {
+  const res = await fetch(`${API_BASE}/sessions/${sessionKey}/drivers/${driverNumber}/trajectory`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch trajectory for driver ${driverNumber}: ${res.statusText}`);
   }
   return res.json();
 }

@@ -77,6 +77,23 @@ class TrackLayoutResponse(BaseModel):
     sectors: Optional[SectorSplits] = Field(None, description="Sector durations")
 
 
+class TrajectoryPoint(BaseModel):
+    """Timestamped telemetry sample along the driver's fastest lap."""
+    x: float = Field(..., description="Raw telemetry X coordinate")
+    y: float = Field(..., description="Raw telemetry Y coordinate")
+    t: float = Field(..., description="Elapsed seconds since lap start")
+    sector: int = Field(1, description="Circuit sector at this timestamp (1, 2, or 3)")
+
+
+class TrajectoryResponse(BaseModel):
+    """Real-time trajectory of a driver's fastest lap for playback simulation."""
+    driver_number: int = Field(..., description="Driver the trajectory belongs to")
+    lap_duration: float = Field(..., description="Lap duration in seconds")
+    points: list[TrajectoryPoint] = Field(
+        ..., description="Chronological samples ordered by elapsed lap time"
+    )
+
+
 class DriverLapResponse(BaseModel):
     """Fastest lap and sector split times for an individual driver."""
     driver_number: int

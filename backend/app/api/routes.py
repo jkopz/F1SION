@@ -14,6 +14,7 @@ from app.models.schemas import (
     HealthResponse,
     SessionResponse,
     TrackLayoutResponse,
+    TrajectoryResponse,
 )
 
 router = APIRouter(prefix="/api", tags=["F1SION"])
@@ -206,6 +207,31 @@ async def get_driver_lap(session_key: int, driver_number: int) -> DriverLapRespo
     except Exception as exc:
         raise HTTPException(
             status_code=500, detail=f"Failed to fetch driver lap: {str(exc)}"
+        ) from exc
+
+
+@router.get(
+    "/sessions/{session_key}/drivers/{driver_number}/trajectory",
+    response_model=TrajectoryResponse,
+    summary="Get driver fastest-lap trajectory",
+    description="Returns the driver's real timestamped position samples for their fastest lap, elapsed-time annotated for playback simulation.",
+)
+async def get_driver_trajectory(session_key: int, driver_number: int) -> TrajectoryResponse:
+    """Retrieves the timestamped trajectory of the driver's fastest lap."""
+    try:
+        trajectory = await client.get_driver_trajectory(session_key, driver_number)
+        if not trajectory or not trajectory.get("points"):
+            raise HTTPException(
+                status_code=404,
+                detail=f"No trajectory data available for driver {driver_number} in session {session_key}.",
+            )
+        return TrajectoryResponse(**trajectory)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch driver trajectory: {str(exc)}",
         ) from exc
 
 

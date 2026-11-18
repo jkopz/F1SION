@@ -1,5 +1,5 @@
-import React, { useMemo, useState, useEffect } from 'react';
-import { TrackLayout, Driver, DriverLap } from '../types/f1';
+import React, { useMemo, useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
+import { TrackLayout, Driver, DriverLap, DriverTrajectory } from '../types/f1';
 import { Play, Pause, RotateCcw, FastForward, Compass, Pin, AlertTriangle } from 'lucide-react';
 import { cleanHeadshotUrl, formatDriverName, getCountryFlag, formatTimeMMSS } from '../utils/driver';
 
@@ -7,15 +7,128 @@ interface CircuitMapProps {
   layout: TrackLayout | null;
   selectedDriver: Driver | null;
   driverLap: DriverLap | null;
+  trajectory?: DriverTrajectory | null;
   circuitName?: string;
   countryName?: string;
   error?: string | null;
 }
 
+// SVG coordinate transformation
+const SVG_WIDTH = 1000;
+const SVG_HEIGHT = 650;
+const PADDING = 28;
+
+// Computes the shared viewport transform so raw telemetry coordinates map
+// identically for the track polyline and the trajectory playback
+const computeViewport = (bounds: { min_x: number; max_y: number; width: number; height: number }) => {
+  const safeWidth = bounds.width > 0 ? bounds.width : 1000;
+  const safeHeight = bounds.height > 0 ? bounds.height : 1000;
+  const aspect = safeWidth / safeHeight;
+
+  const availableWidth = SVG_WIDTH - PADDING * 2;
+  const availableHeight = SVG_HEIGHT - PADDING * 2;
+
+  let drawWidth = availableWidth;
+  let drawHeight = availableWidth / aspect;
+
+  if (drawHeight > availableHeight) {
+    drawHeight = availableHeight;
+    drawWidth = availableHeight * aspect;
+  }
+
+  return {
+    offsetX: PADDING + (availableWidth - drawWidth) / 2,
+    offsetY: PADDING + (availableHeight - drawHeight) / 2,
+    drawWidth,
+    drawHeight,
+    safeWidth,
+    safeHeight,
+  };
+};
+
+// React re-renders for text/badge UI at ~10Hz; per-frame painting happens
+// outside React (see progressRef / applyPosition). 10 frames per second is
+// plenty for time readouts and sector badges.
+const UI_UPDATE_MS = 100;
+
+interface PathPoint {
+  x: number;
+  y: number;
+}
+
+interface TimedPathPoint extends PathPoint {
+  t: number;
+}
+
+type LapPosition = { x: number; y: number } | null;
+
+// Computes the car position for a lap-time fraction. Uses the driver's real
+// timestamped trajectory when available (fast on straights, slow in corners)
+// and falls back to the chronological reference-lap point sequence.
+const computeCarPosition = (
+  progress: number,
+  totalLapDuration: number,
+  trajectoryPts: TimedPathPoint[],
+  mappedPoints: PathPoint[],
+): LapPosition => {
+  if (trajectoryPts.length >= 2 && totalLapDuration > 0) {
+    const lapTime = Math.min(Math.max(progress, 0), 1) * totalLapDuration;
+
+    // Clamp outside the recorded window to the nearest sample
+    if (lapTime <= trajectoryPts[0].t) {
+      return { x: trajectoryPts[0].x, y: trajectoryPts[0].y };
+    }
+    const last = trajectoryPts[trajectoryPts.length - 1];
+    if (lapTime >= last.t) {
+      return { x: last.x, y: last.y };
+    }
+
+    // Binary search for the sample pair bracketing the current lap time
+    let lo = 0;
+    let hi = trajectoryPts.length - 1;
+    while (lo < hi - 1) {
+      const mid = (lo + hi) >>> 1;
+      if (trajectoryPts[mid].t <= lapTime) {
+        lo = mid;
+      } else {
+        hi = mid;
+      }
+    }
+
+    const span = trajectoryPts[hi].t - trajectoryPts[lo].t;
+    const t = span > 0 ? (lapTime - trajectoryPts[lo].t) / span : 0;
+    const p1 = trajectoryPts[lo];
+    const p2 = trajectoryPts[hi];
+    return {
+      x: p1.x + (p2.x - p1.x) * t,
+      y: p1.y + (p2.y - p1.y) * t,
+    };
+  }
+
+  if (mappedPoints.length >= 2) {
+    const exactIndex = Math.min(Math.max(progress, 0), 1) * (mappedPoints.length - 1);
+    const idx = Math.max(0, Math.min(Math.floor(exactIndex), mappedPoints.length - 2));
+    const remainder = exactIndex - idx;
+
+    const p1 = mappedPoints[idx];
+    const p2 = mappedPoints[idx + 1];
+    if (p1 && p2) {
+      return {
+        x: p1.x + (p2.x - p1.x) * remainder,
+        y: p1.y + (p2.y - p1.y) * remainder,
+      };
+    }
+    return mappedPoints[0] || null;
+  }
+
+  return null;
+};
+
 export const CircuitMap: React.FC<CircuitMapProps> = ({
   layout,
   selectedDriver,
   driverLap,
+  trajectory,
   circuitName,
   countryName,
   error,
@@ -28,6 +141,21 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
   const [isScrubbing, setIsScrubbing] = useState<boolean>(false);
   // Track completed sector times (don't reset when sector changes)
   const [sectorTimes, setSectorTimes] = useState<{s1?: number, s2?: number, s3?: number}>({});
+
+  // Exact playback progress lives in a ref: the rAF loop advances and paints
+  // it directly to the DOM every frame. React state above is only a ~10Hz
+  // mirror for text/badge UI, keeping 60fps playback off the render cycle.
+  const progressRef = useRef(0);
+  const sectorTimesRef = useRef<{s1?: number, s2?: number, s3?: number}>({});
+  const carGroupRef = useRef<SVGGElement | null>(null);
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const playheadFillRef = useRef<HTMLDivElement | null>(null);
+  const playheadThumbRef = useRef<HTMLDivElement | null>(null);
+  // Cached measurements: stage pixel size (ResizeObserver) and card size
+  // (measured once per mount) — avoids per-frame layout reads
+  const stageSizeRef = useRef({ w: 0, h: 0 });
+  const cardSizeRef = useRef({ w: 0, h: 0 });
 
   // Safe lap duration
   const rawDuration = driverLap?.lap_duration || layout?.lap_duration;
@@ -51,40 +179,30 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
 
   // Reset lap whenever selected driver changes
   useEffect(() => {
+    progressRef.current = 0;
+    sectorTimesRef.current = {};
     setProgress(0);
     setIsPlaying(true);
     setIsPinned(false);
     setSectorTimes({});
   }, [selectedDriver?.driver_number]);
 
-  // Track sector completion times
-  useEffect(() => {
-    if (!isPlaying || !totalLapDuration) return;
-    
-    const newSectorTimes = {...sectorTimes};
-    
-    // Check if we just completed sector 1
-    if (safeProgress > s1Fraction && !newSectorTimes.s1) {
-      newSectorTimes.s1 = s1Time;
+  // Marks sector splits as completed once playback passes their thresholds
+  const trackSectorTimes = useCallback((p: number) => {
+    const st = sectorTimesRef.current;
+    if (!st.s1 && p > s1Fraction) {
+      st.s1 = s1Time;
+      setSectorTimes({ ...st });
     }
-    // Check if we just completed sector 2
-    if (safeProgress > s2Fraction && !newSectorTimes.s2) {
-      newSectorTimes.s2 = s2Time;
+    if (!st.s2 && p > s2Fraction) {
+      st.s2 = s2Time;
+      setSectorTimes({ ...st });
     }
-    // Check if we just completed sector 3
-    if (safeProgress >= 0.999 && !newSectorTimes.s3) {
-      newSectorTimes.s3 = s3Time;
+    if (!st.s3 && p >= 0.999) {
+      st.s3 = s3Time;
+      setSectorTimes({ ...st });
     }
-    
-    if (JSON.stringify(newSectorTimes) !== JSON.stringify(sectorTimes)) {
-      setSectorTimes(newSectorTimes);
-    }
-  }, [safeProgress, s1Fraction, s2Fraction, s1Time, s2Time, s3Time, sectorTimes, isPlaying, totalLapDuration]);
-
-  // SVG coordinate transformation
-  const SVG_WIDTH = 1000;
-  const SVG_HEIGHT = 650;
-  const PADDING = 28;
+  }, [s1Fraction, s2Fraction, s1Time, s2Time, s3Time]);
 
   const {
     mappedPoints,
@@ -109,24 +227,9 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
       };
     }
 
-    const { min_x, max_y, width, height } = layout.bounds;
-    const safeWidth = width > 0 ? width : 1000;
-    const safeHeight = height > 0 ? height : 1000;
-    const aspect = safeWidth / safeHeight;
-
-    const availableWidth = SVG_WIDTH - PADDING * 2;
-    const availableHeight = SVG_HEIGHT - PADDING * 2;
-
-    let drawWidth = availableWidth;
-    let drawHeight = availableWidth / aspect;
-
-    if (drawHeight > availableHeight) {
-      drawHeight = availableHeight;
-      drawWidth = availableHeight * aspect;
-    }
-
-    const offsetX = PADDING + (availableWidth - drawWidth) / 2;
-    const offsetY = PADDING + (availableHeight - drawHeight) / 2;
+    const { min_x, max_y } = layout.bounds;
+    const { offsetX, offsetY, drawWidth, drawHeight, safeWidth, safeHeight } =
+      computeViewport(layout.bounds);
 
     // Map each point safely into SVG viewport coordinates
     const pts = layout.points
@@ -186,30 +289,146 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
     };
   }, [layout]);
 
-  // Real-time animation loop using requestAnimationFrame
-  // Uses actual elapsed time to ensure 1:1 timing (1 second in lap = 1 second real time)
+  // Real timestamped trajectory of the selected driver's fastest lap, mapped
+  // into the same SVG viewport as the track. Point spacing in time reflects
+  // real speed: dense samples in corners, wide gaps on straights.
+  const trajectoryPts = useMemo(() => {
+    if (!layout?.bounds || !trajectory?.points || trajectory.points.length < 2) {
+      return [];
+    }
+    const { min_x, max_y } = layout.bounds;
+    const { offsetX, offsetY, drawWidth, drawHeight, safeWidth, safeHeight } =
+      computeViewport(layout.bounds);
+
+    return trajectory.points
+      .filter(
+        (p) =>
+          typeof p.x === 'number' &&
+          typeof p.y === 'number' &&
+          typeof p.t === 'number'
+      )
+      .map((p) => ({
+        x: offsetX + ((p.x - min_x) / safeWidth) * drawWidth,
+        y: offsetY + ((max_y - p.y) / safeHeight) * drawHeight,
+        t: p.t,
+      }))
+      .sort((a, b) => a.t - b.t);
+  }, [layout, trajectory]);
+
+  // Paints the current playback position straight to the DOM: car marker,
+  // hover card position, and playhead. Called from the rAF loop and on scrub,
+  // never through React state, so 60fps playback triggers zero reconciliations.
+  const applyPosition = useCallback(
+    (p: number) => {
+      const pos = computeCarPosition(p, totalLapDuration, trajectoryPts, mappedPoints);
+      if (!pos) return;
+
+      carGroupRef.current?.setAttribute('transform', `translate(${pos.x}, ${pos.y})`);
+
+      // Card placement in stage pixels: ahead of the SVG's letterboxing (the
+      // svg scales uniformly inside its container). Prefer the right side of
+      // the car, flip to the left near the right edge, then clamp inside the
+      // stage — so it never covers the marker and never leaves the screen.
+      if (cardRef.current && stageSizeRef.current.w > 0 && stageSizeRef.current.h > 0) {
+        const w = cardSizeRef.current.w || 240;
+        const h = cardSizeRef.current.h || 170;
+        const stageW = stageSizeRef.current.w;
+        const stageH = stageSizeRef.current.h;
+
+        const scale = Math.min(stageW / SVG_WIDTH, stageH / SVG_HEIGHT);
+        const originX = (stageW - SVG_WIDTH * scale) / 2;
+        const originY = (stageH - SVG_HEIGHT * scale) / 2;
+        const carX = originX + pos.x * scale;
+        const carY = originY + pos.y * scale;
+
+        const CLEAR = 26;  // pulse ring radius ~22px
+        const GAP = 16;    // breathing room between marker and card edge
+        const MARGIN = 8;  // stage edge padding
+
+        let left = carX + CLEAR + GAP;
+        if (left + w > stageW - MARGIN) {
+          left = carX - CLEAR - GAP - w;
+        }
+        left = Math.min(Math.max(left, MARGIN), Math.max(MARGIN, stageW - w - MARGIN));
+
+        const top = Math.min(
+          Math.max(carY, h / 2 + MARGIN),
+          stageH - h / 2 - MARGIN
+        );
+
+        cardRef.current.style.left = `${Math.round(left)}px`;
+        cardRef.current.style.top = `${Math.round(top)}px`;
+      }
+
+      const pct = `${(p * 100).toFixed(2)}%`;
+      if (playheadFillRef.current) playheadFillRef.current.style.width = pct;
+      if (playheadThumbRef.current) playheadThumbRef.current.style.left = pct;
+    },
+    [totalLapDuration, trajectoryPts, mappedPoints]
+  );
+
+  // Stage measurement via callback ref: a plain mount-effect would run while
+  // the loading state is shown (stage not yet in the DOM) and never fire
+  // again — leaving the stage size at zero and the card unpositioned.
+  // A callback ref fires exactly when the node enters/leaves the DOM.
+  const measureStage = useCallback(
+    (node: HTMLDivElement | null) => {
+      observerRef.current?.disconnect();
+      observerRef.current = null;
+      if (!node) return;
+      const measure = () => {
+        stageSizeRef.current = { w: node.clientWidth, h: node.clientHeight };
+        // Re-place the card against the new stage bounds on resize
+        applyPosition(progressRef.current);
+      };
+      stageSizeRef.current = { w: node.clientWidth, h: node.clientHeight };
+      observerRef.current = new ResizeObserver(measure);
+      observerRef.current.observe(node);
+    },
+    [applyPosition]
+  );
+
+  // Keep car/card/playhead positioned before paint whenever data changes
+  // (mount, driver switch, lap duration change) or the card mounts mid-pause
+  useLayoutEffect(() => {
+    // Measure the freshly mounted card so placement knows its real size
+    if (cardRef.current) {
+      cardSizeRef.current = {
+        w: cardRef.current.offsetWidth,
+        h: cardRef.current.offsetHeight,
+      };
+    }
+    applyPosition(progressRef.current);
+  }, [applyPosition, isHoveringCar, isPinned]);
+
+  // Real-time animation loop using requestAnimationFrame.
+  // Advances the exact progress in a ref and paints via applyPosition every
+  // frame; React state is synced at ~10Hz purely for text/badge UI.
   useEffect(() => {
-    if (!isPlaying || isScrubbing || mappedPoints.length < 2) return;
+    if (!isPlaying || isScrubbing || (trajectoryPts.length < 2 && mappedPoints.length < 2)) return;
 
     let animId: number;
     let lastUpdateTime = performance.now();
+    let lastUiUpdate = 0;
 
     const tick = (time: number) => {
-      // Calculate time elapsed since last update (not since last tick)
-      const elapsedMs = time - lastUpdateTime;
-      
-      // Only update if enough time has passed or if we're falling behind
-      // This ensures real-time playback: 1 second of lap time = 1 second real time
-      if (elapsedMs >= 0) {
-        const elapsedSeconds = elapsedMs / 1000;
-        const progressStep = (elapsedSeconds * playbackSpeed) / totalLapDuration;
-        
-        lastUpdateTime = time;
-        
-        setProgress((prev) => {
-          const next = (Number.isFinite(prev) ? prev : 0) + progressStep;
-          return next >= 1 ? next % 1 : next;
-        });
+      // Elapsed time since last tick, capped so tab throttling / hiccups
+      // don't teleport the car forward
+      const elapsedMs = Math.min(time - lastUpdateTime, 200);
+      lastUpdateTime = time;
+
+      const progressStep = ((elapsedMs / 1000) * playbackSpeed) / totalLapDuration;
+      let next = (Number.isFinite(progressRef.current) ? progressRef.current : 0) + progressStep;
+      if (next >= 1) next %= 1;
+      progressRef.current = next;
+
+      trackSectorTimes(next);
+      applyPosition(next);
+
+      // Throttled UI sync: time readouts, sector badges, scrub state mirror
+      if (time - lastUiUpdate >= UI_UPDATE_MS) {
+        lastUiUpdate = time;
+        setProgress(next);
       }
 
       animId = requestAnimationFrame(tick);
@@ -217,26 +436,131 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
 
     animId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animId);
-  }, [isPlaying, isScrubbing, mappedPoints.length, totalLapDuration, playbackSpeed]);
+  }, [isPlaying, isScrubbing, playbackSpeed, totalLapDuration, trackSectorTimes, applyPosition]);
 
-  // Memo for car position only (speed removed as per requirements)
-  const currentCarPos = useMemo(() => {
-    if (!mappedPoints || mappedPoints.length < 2) {
-      return null;
-    }
-    
-    const exactIndex = safeProgress * (mappedPoints.length - 1);
-    const idx = Math.max(0, Math.min(Math.floor(exactIndex), mappedPoints.length - 2));
-    const remainder = exactIndex - idx;
+  // Car marker position + playhead rendering
+  const uiCarPos = useMemo(
+    () => computeCarPosition(safeProgress, totalLapDuration, trajectoryPts, mappedPoints),
+    [safeProgress, totalLapDuration, trajectoryPts, mappedPoints]
+  );
 
-    const p1 = mappedPoints[idx];
-    const p2 = mappedPoints[idx + 1];
+  // Static track artwork memoised as a single React element: when React
+  // re-renders during playback it sees an identical element reference and
+  // skips this whole subtree (including the SVG filter work)
+  const trackVisuals = useMemo(
+    () => (
+      <>
+        <defs>
+          <filter id="trackGlow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="3.5" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
 
-    return p1 && p2 ? {
-      x: p1.x + (p2.x - p1.x) * remainder,
-      y: p1.y + (p2.y - p1.y) * remainder,
-    } : mappedPoints[0] || null;
-  }, [safeProgress, mappedPoints]);
+        {/* Layer 1: Outer Shadow & Base Contour */}
+        <path
+          d={fullTrackPath}
+          fill="none"
+          stroke="rgba(0,0,0,0.85)"
+          strokeWidth="34"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+
+        {/* Layer 2: Main Dark Asphalt Ribbon */}
+        <path
+          d={fullTrackPath}
+          fill="none"
+          stroke="#1c202c"
+          strokeWidth="26"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+
+        {/* Layer 3: Inner Guide */}
+        <path
+          d={fullTrackPath}
+          fill="none"
+          stroke="#3a4258"
+          strokeWidth="10"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+
+        {/* Layer 4: Sector 1 Glowing Line (Cyan) */}
+        <path
+          d={sector1Path}
+          fill="none"
+          stroke="#00F0FF"
+          strokeWidth="6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          opacity={currentSector === 1 ? 1 : 0.7}
+          filter={currentSector === 1 ? 'url(#trackGlow)' : undefined}
+        />
+
+        {/* Layer 5: Sector 2 Glowing Line (Purple) */}
+        <path
+          d={sector2Path}
+          fill="none"
+          stroke="#A855F7"
+          strokeWidth="6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          opacity={currentSector === 2 ? 1 : 0.7}
+          filter={currentSector === 2 ? 'url(#trackGlow)' : undefined}
+        />
+
+        {/* Layer 6: Sector 3 Glowing Line (Emerald) */}
+        <path
+          d={sector3Path}
+          fill="none"
+          stroke="#10B981"
+          strokeWidth="6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          opacity={currentSector === 3 ? 1 : 0.7}
+          filter={currentSector === 3 ? 'url(#trackGlow)' : undefined}
+        />
+
+        {/* Sector Boundary Badges on Track */}
+        {s1BoundaryPoint && (
+          <g transform={`translate(${s1BoundaryPoint.x}, ${s1BoundaryPoint.y})`}>
+            <circle r="4" fill="#00F0FF" />
+            <text x="8" y="3" fill="#00F0FF" fontSize="10" fontFamily="monospace" fontWeight="bold">
+              S1 / S2
+            </text>
+          </g>
+        )}
+
+        {s2BoundaryPoint && (
+          <g transform={`translate(${s2BoundaryPoint.x}, ${s2BoundaryPoint.y})`}>
+            <circle r="4" fill="#A855F7" />
+            <text x="8" y="3" fill="#A855F7" fontSize="10" fontFamily="monospace" fontWeight="bold">
+              S2 / S3
+            </text>
+          </g>
+        )}
+
+        {/* Start / Finish Checkered Marker */}
+        {startPoint && (
+          <g transform={`translate(${startPoint.x}, ${startPoint.y})`}>
+            <circle r="7" fill="#ffffff" stroke="#e10600" strokeWidth="2.5" />
+            <g transform="translate(10, -5)">
+              <rect x="0" y="0" width="56" height="18" rx="4" fill="rgba(10,12,18,0.85)" stroke="rgba(255,255,255,0.2)" />
+              <text x="6" y="12" fill="#ffffff" fontSize="9" fontFamily="monospace" fontWeight="bold">
+                🏁 S / F
+              </text>
+            </g>
+          </g>
+        )}
+      </>
+    ),
+    [fullTrackPath, sector1Path, sector2Path, sector3Path, s1BoundaryPoint, s2BoundaryPoint, startPoint, currentSector]
+  );
 
 
 
@@ -290,7 +614,7 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
               </span>
             </div>
             <div className="flex items-center gap-3 text-[11px] font-mono text-zinc-400">
-              <span>LAP BENCHMARK: <strong className="text-zinc-200">{totalLapDuration.toFixed(3)}s</strong></span>
+              <span>LAP BENCHMARK: <strong className="text-zinc-200">{formatTimeMMSS(totalLapDuration)}</strong></span>
               <span>•</span>
               <span className="flex items-center gap-1.5">
                 ACTIVE SECTOR:
@@ -357,7 +681,10 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
       </div>
 
       {/* Main SVG Track Canvas */}
-      <div className="circuit-stage relative flex-1 flex items-center justify-center p-2 overflow-hidden">
+      <div
+        ref={measureStage}
+        className="circuit-stage relative flex-1 flex items-center justify-center p-2 overflow-hidden"
+      >
         <div className="circuit-grid pointer-events-none absolute inset-0" />
         <div
           className="pointer-events-none absolute inset-0"
@@ -369,118 +696,13 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
           viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
           className="relative z-[1] h-full w-full select-none"
         >
-          <defs>
-            <filter id="trackGlow" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="3.5" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-          </defs>
-
-          {/* Layer 1: Outer Shadow & Base Contour */}
-          <path
-            d={fullTrackPath}
-            fill="none"
-            stroke="rgba(0,0,0,0.85)"
-            strokeWidth="34"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-
-          {/* Layer 2: Main Dark Asphalt Ribbon */}
-          <path
-            d={fullTrackPath}
-            fill="none"
-            stroke="#1c202c"
-            strokeWidth="26"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-
-          {/* Layer 3: Inner Guide */}
-          <path
-            d={fullTrackPath}
-            fill="none"
-            stroke="#3a4258"
-            strokeWidth="10"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-
-          {/* Layer 4: Sector 1 Glowing Line (Cyan) */}
-          <path
-            d={sector1Path}
-            fill="none"
-            stroke="#00F0FF"
-            strokeWidth="6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            opacity={currentSector === 1 ? 1 : 0.7}
-            filter={currentSector === 1 ? 'url(#trackGlow)' : undefined}
-          />
-
-          {/* Layer 5: Sector 2 Glowing Line (Purple) */}
-          <path
-            d={sector2Path}
-            fill="none"
-            stroke="#A855F7"
-            strokeWidth="6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            opacity={currentSector === 2 ? 1 : 0.7}
-            filter={currentSector === 2 ? 'url(#trackGlow)' : undefined}
-          />
-
-          {/* Layer 6: Sector 3 Glowing Line (Emerald) */}
-          <path
-            d={sector3Path}
-            fill="none"
-            stroke="#10B981"
-            strokeWidth="6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            opacity={currentSector === 3 ? 1 : 0.7}
-            filter={currentSector === 3 ? 'url(#trackGlow)' : undefined}
-          />
-
-          {/* Sector Boundary Badges on Track */}
-          {s1BoundaryPoint && (
-            <g transform={`translate(${s1BoundaryPoint.x}, ${s1BoundaryPoint.y})`}>
-              <circle r="4" fill="#00F0FF" />
-              <text x="8" y="3" fill="#00F0FF" fontSize="10" fontFamily="monospace" fontWeight="bold">
-                S1 / S2
-              </text>
-            </g>
-          )}
-
-          {s2BoundaryPoint && (
-            <g transform={`translate(${s2BoundaryPoint.x}, ${s2BoundaryPoint.y})`}>
-              <circle r="4" fill="#A855F7" />
-              <text x="8" y="3" fill="#A855F7" fontSize="10" fontFamily="monospace" fontWeight="bold">
-                S2 / S3
-              </text>
-            </g>
-          )}
-
-          {/* Start / Finish Checkered Marker */}
-          {startPoint && (
-            <g transform={`translate(${startPoint.x}, ${startPoint.y})`}>
-              <circle r="7" fill="#ffffff" stroke="#e10600" strokeWidth="2.5" />
-              <g transform="translate(10, -5)">
-                <rect x="0" y="0" width="56" height="18" rx="4" fill="rgba(10,12,18,0.85)" stroke="rgba(255,255,255,0.2)" />
-                <text x="6" y="12" fill="#ffffff" fontSize="9" fontFamily="monospace" fontWeight="bold">
-                  🏁 S / F
-                </text>
-              </g>
-            </g>
-          )}
+          {trackVisuals}
 
           {/* Car Marker (Pure Hardware-Accelerated SVG - 100% Gecko/Firefox Safe) */}
-          {currentCarPos && (
+          {uiCarPos && (
             <g
-              transform={`translate(${currentCarPos.x}, ${currentCarPos.y})`}
+              ref={carGroupRef}
+              style={{ willChange: 'transform' }}
               className="cursor-pointer"
               onMouseEnter={() => setIsHoveringCar(true)}
               onMouseLeave={() => setIsHoveringCar(false)}
@@ -542,25 +764,19 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
         </svg>
 
         {/* Hover Popover: Apple Liquid Glass Driver Card */}
-        {currentCarPos && (isHoveringCar || isPinned) && (
+        {uiCarPos && (isHoveringCar || isPinned) && (
           <div
-            className="absolute z-30 pointer-events-none transition-all duration-200"
-            style={{
-              // Position card beside the car (right side by default, left side if near right edge)
-              left: `${currentCarPos.x / SVG_WIDTH > 0.75 
-                ? Math.max(5, (currentCarPos.x / SVG_WIDTH) * 100 - 18)
-                : Math.min(85, (currentCarPos.x / SVG_WIDTH) * 100 + 12)}%`,
-              top: `${Math.max(10, Math.min(90, (currentCarPos.y / SVG_HEIGHT) * 100))}%`,
-              transform: 'translateY(-50%)',
-            }}
+            ref={cardRef}
+            className="absolute z-30 pointer-events-none"
+            style={{ transform: 'translateY(-50%)' }}
           >
             {/* Liquid Glass card — layered frosted glass with coloured tint */}
             <div
               className="relative flex items-center gap-3 p-3 rounded-2xl min-w-[220px] overflow-hidden"
               style={{
                 background: `linear-gradient(135deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.06) 100%)`,
-                backdropFilter: 'blur(28px) saturate(180%)',
-                WebkitBackdropFilter: 'blur(28px) saturate(180%)',
+                backdropFilter: 'blur(20px) saturate(180%)',
+                WebkitBackdropFilter: 'blur(20px) saturate(180%)',
                 border: `1px solid rgba(255,255,255,0.22)`,
                 boxShadow: `0 8px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.18), 0 0 0 1px rgba(0,0,0,0.12)`,
               }}
@@ -684,13 +900,13 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
         {/* Sector Labels */}
         <div className="flex justify-between text-[10px] font-mono text-zinc-400">
           <span className="flex items-center gap-1 text-cyan-400 font-bold">
-            SECTOR 1 (0:00 - {s1Time.toFixed(1)}s)
+            SECTOR 1 (0:00.000 - {formatTimeMMSS(s1Time)})
           </span>
           <span className="flex items-center gap-1 text-purple-400 font-bold">
-            SECTOR 2 ({s1Time.toFixed(1)}s - {(s1Time + s2Time).toFixed(1)}s)
+            SECTOR 2 ({formatTimeMMSS(s1Time)} - {formatTimeMMSS(s1Time + s2Time)})
           </span>
           <span className="flex items-center gap-1 text-emerald-400 font-bold">
-            SECTOR 3 ({(s1Time + s2Time).toFixed(1)}s - {totalLapDuration.toFixed(1)}s)
+            SECTOR 3 ({formatTimeMMSS(s1Time + s2Time)} - {formatTimeMMSS(totalLapDuration)})
           </span>
         </div>
 
@@ -710,6 +926,7 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
             />
             {/* Progress Fill */}
             <div
+              ref={playheadFillRef}
               className="h-full bg-gradient-to-r from-cyan-500 via-purple-500 to-emerald-500"
               style={{ width: `${(safeProgress * 100).toFixed(2)}%` }}
             />
@@ -729,7 +946,10 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
             onChange={(e) => {
               const val = parseFloat(e.target.value);
               if (Number.isFinite(val)) {
+                progressRef.current = val;
+                trackSectorTimes(val);
                 setProgress(val);
+                applyPosition(val);
               }
             }}
             className="w-full h-4 opacity-0 cursor-ew-resize z-20"
@@ -738,6 +958,7 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
 
           {/* Custom Glowing Thumb Marker */}
           <div
+            ref={playheadThumbRef}
             className="absolute h-4 w-4 rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.9)] border-2 border-red-600 pointer-events-none -translate-x-1/2 transition-transform"
             style={{ left: `${(safeProgress * 100).toFixed(2)}%` }}
           />

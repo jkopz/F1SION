@@ -8,6 +8,7 @@ responses locally as JSON to prevent redundant network round-trips.
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
+import asyncio
 import json
 import httpx
 
@@ -21,7 +22,11 @@ class OpenF1Client:
 
     Attributes:
         cache_enabled (bool): Whether local file caching is enabled.
+        RETRY_DELAYS (tuple[float, ...]): Backoff seconds per retry attempt
+            for transient OpenF1 responses (429 rate limit / 5xx).
     """
+
+    RETRY_DELAYS: tuple[float, ...] = (0.5, 1.0, 2.0)
 
     def __init__(self, cache_enabled: bool = True) -> None:
         """Initializes the OpenF1 client.
@@ -30,6 +35,13 @@ class OpenF1Client:
             cache_enabled: If True, responses are cached to disk in JSON format.
         """
         self.cache_enabled = cache_enabled
+        # Reused connection pool: avoids a fresh TLS handshake per request
+        self._http: Optional[httpx.AsyncClient] = None
+
+    def _get_http(self) -> httpx.AsyncClient:
+        if self._http is None or self._http.is_closed:
+            self._http = httpx.AsyncClient(timeout=30.0)
+        return self._http
 
     def _get_cache_path(self, endpoint: str, params: dict[str, Any]) -> Path:
         """Generates a safe deterministic cache filepath for a given request.
@@ -88,10 +100,31 @@ class OpenF1Client:
         query_str = f"?{'&'.join(query_parts)}" if query_parts else ""
         url = f"{BASE_URL}/{endpoint}{query_str}"
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            data: list[dict[str, Any]] = resp.json()
+        # Session switches fire several OpenF1 requests in quick succession
+        # (drivers, results, laps, location); their rate limiter answers with
+        # 429 — retry transient responses with backoff instead of bubbling a
+        # 500 to the frontend. Retry-After is honoured when present.
+        http = self._get_http()
+        attempt = 0
+        while True:
+            try:
+                resp = await http.get(url)
+                resp.raise_for_status()
+                break
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                if status != 429 and status not in (500, 502, 503, 504):
+                    raise
+                if attempt >= len(self.RETRY_DELAYS):
+                    raise
+                retry_after = exc.response.headers.get("Retry-After")
+                try:
+                    delay = float(retry_after)
+                except (TypeError, ValueError):
+                    delay = self.RETRY_DELAYS[attempt]
+                attempt += 1
+                await asyncio.sleep(delay)
+        data: list[dict[str, Any]] = resp.json()
 
         # Cache response locally
         if self.cache_enabled and data:
@@ -149,6 +182,91 @@ class OpenF1Client:
             "duration_sector_3": fastest.get("duration_sector_3"),
             "compound": fastest.get("compound", "UNKNOWN"),
             "date_start": fastest.get("date_start"),
+        }
+
+    async def get_driver_trajectory(
+        self, session_key: int, driver_number: int
+    ) -> Optional[dict[str, Any]]:
+        """Builds the driver's real timestamped trajectory for their fastest lap.
+
+        Fetches location telemetry strictly within the driver's fastest lap
+        window and annotates each sample with the elapsed time since lap
+        start (``t`` in seconds). Because samples are recorded at varying
+        rates, consecutive points sit far apart on straights and densely in
+        corners — replaying them against real time reproduces the driver's
+        actual speed profile.
+
+        Returns:
+            Dictionary with lap duration and ordered trajectory points, or
+            None when no location telemetry covers the lap.
+        """
+        fastest = await self.get_driver_fastest_lap(session_key, driver_number)
+        if not fastest or not fastest.get("date_start") or not fastest.get("lap_duration"):
+            return None
+
+        start_dt = datetime.fromisoformat(fastest["date_start"])
+        lap_duration = float(fastest["lap_duration"])
+
+        s1_duration = fastest.get("duration_sector_1") or (lap_duration / 3.0)
+        s2_duration = fastest.get("duration_sector_2") or (lap_duration / 3.0)
+        s1_end = start_dt + timedelta(seconds=s1_duration)
+        s2_end = s1_end + timedelta(seconds=s2_duration)
+
+        def fmt(dt: datetime) -> str:
+            return dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
+
+        locs = await self.get(
+            "location",
+            {
+                "session_key": session_key,
+                "driver_number": driver_number,
+                "date>=": fmt(start_dt),
+                "date<=": fmt(start_dt + timedelta(seconds=lap_duration)),
+            },
+        )
+        if not locs:
+            return None
+
+        points: list[dict[str, Any]] = []
+        last_t = -1.0
+        for p in sorted(locs, key=lambda q: q.get("date") or ""):
+            if p.get("x") == 0 and p.get("y") == 0:
+                continue
+            try:
+                p_dt = datetime.fromisoformat(p["date"])
+            except Exception:
+                continue
+
+            t = max(0.0, min((p_dt - start_dt).total_seconds(), lap_duration))
+            # Enforce strictly increasing timestamps so binary-search playback
+            # never interpolates against a zero or negative time span
+            if t <= last_t:
+                continue
+            last_t = t
+
+            if p_dt <= s1_end:
+                sector = 1
+            elif p_dt <= s2_end:
+                sector = 2
+            else:
+                sector = 3
+
+            points.append(
+                {
+                    "x": p["x"],
+                    "y": p["y"],
+                    "t": round(t, 4),
+                    "sector": sector,
+                }
+            )
+
+        if len(points) < 2:
+            return None
+
+        return {
+            "driver_number": driver_number,
+            "lap_duration": lap_duration,
+            "points": points,
         }
 
     async def get_circuit_layout(

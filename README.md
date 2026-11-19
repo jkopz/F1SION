@@ -13,6 +13,22 @@ An F1 analytics, prediction and simulation platform. F1SION combines session dat
 
 ---
 
+## 🏁 Showcase
+
+**Qualifying Analysis** — live track animation with sector coloring, real-time lap playback and the full grid lineup:
+
+![F1SION Qualifying Analysis — Interlagos](docs/screenshots/dashboard.png)
+
+<details>
+<summary>📦 More screenshots</summary>
+
+- `docs/screenshots/` — drop your own captures here and reference them like the one above.
+- Suggested ones to add: **Race Telemetry** and **AI Predictions** once they ship.
+
+</details>
+
+---
+
 ## ⚠️ Font License Notice
 
 **Important:** The Formula 1 typeface used for driver acronyms is **proprietary** and not openly licensed.

@@ -21,10 +21,7 @@ An F1 analytics, prediction and simulation platform. F1SION combines session dat
 
 <details>
 <summary>📦 More screenshots</summary>
-
-- `docs/screenshots/` — drop your own captures here and reference them like the one above.
-- Suggested ones to add: **Race Telemetry** and **AI Predictions** once they ship.
-
+soon™
 </details>
 
 ---

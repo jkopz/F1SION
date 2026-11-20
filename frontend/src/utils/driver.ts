@@ -14,21 +14,22 @@ export function formatTimeMMSS(seconds: number): string {
 }
 
 /**
- * Country code → flag emoji mapping for all 2024 F1 drivers.
- * Uses ISO 3166-1 alpha-3 codes as returned by OpenF1.
+ * Gap to a reference lap in F1 timing-tower style, e.g. 0.304 -> "+0.304"
  */
-const FLAG_MAP: Record<string, string> = {
-  NED: '🇳🇱', AUS: '🇦🇺', GBR: '🇬🇧', FRA: '🇫🇷', MEX: '🇲🇽',
-  ESP: '🇪🇸', MON: '🇲🇨', CAN: '🇨🇦', DEN: '🇩🇰', JPN: '🇯🇵',
-  THA: '🇹🇭', CHN: '🇨🇳', GER: '🇩🇪', ARG: '🇦🇷', FIN: '🇫🇮',
-  ITA: '🇮🇹', BRA: '🇧🇷', USA: '🇺🇸', POL: '🇵🇱', RSA: '🇿🇦',
-  SUI: '🇨🇭', BEL: '🇧🇪', AUT: '🇦🇹', POR: '🇵🇹', NZL: '🇳🇿',
-  RUS: '🇷🇺', IRL: '🇮🇪',
-};
+export function formatGap(seconds: number): string {
+  if (!Number.isFinite(seconds)) return '';
+  return `+${Math.max(0, seconds).toFixed(3)}`;
+}
 
-export function getCountryFlag(countryCode?: string): string {
-  if (!countryCode) return '';
-  return FLAG_MAP[countryCode] ?? '';
+/**
+ * Timing-screen colour for a sector split against the pole lap's split:
+ * purple when it matches or beats it, yellow when slower.
+ */
+export type SectorTiming = 'purple' | 'yellow' | null;
+
+export function sectorTiming(split?: number, benchmark?: number): SectorTiming {
+  if (!split || !benchmark) return null;
+  return split <= benchmark + 0.0005 ? 'purple' : 'yellow';
 }
 
 /**

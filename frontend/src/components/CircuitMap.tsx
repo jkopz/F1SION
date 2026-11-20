@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { TrackLayout, Driver, DriverLap, DriverTrajectory } from '../types/f1';
 import { Play, Pause, RotateCcw, FastForward, Compass, Pin, AlertTriangle } from 'lucide-react';
-import { cleanHeadshotUrl, formatDriverName, getCountryFlag, formatTimeMMSS } from '../utils/driver';
+import { cleanHeadshotUrl, formatDriverName, formatTimeMMSS, sectorTiming, SectorTiming } from '../utils/driver';
 
 interface CircuitMapProps {
   layout: TrackLayout | null;
@@ -152,6 +152,7 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
   const observerRef = useRef<ResizeObserver | null>(null);
   const playheadFillRef = useRef<HTMLDivElement | null>(null);
   const playheadThumbRef = useRef<HTMLDivElement | null>(null);
+  const trailRef = useRef<SVGPathElement | null>(null);
   // Cached measurements: stage pixel size (ResizeObserver) and card size
   // (measured once per mount) — avoids per-frame layout reads
   const stageSizeRef = useRef({ w: 0, h: 0 });
@@ -209,10 +210,9 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
     sector1Path,
     sector2Path,
     sector3Path,
-    fullTrackPath,
-    startPoint,
-    s1BoundaryPoint,
-    s2BoundaryPoint,
+    startMarker,
+    b12Marker,
+    b23Marker,
   } = useMemo(() => {
     if (!layout || !layout.points || layout.points.length < 2 || !layout.bounds) {
       return {
@@ -220,10 +220,9 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
         sector1Path: '',
         sector2Path: '',
         sector3Path: '',
-        fullTrackPath: '',
-        startPoint: null,
-        s1BoundaryPoint: null,
-        s2BoundaryPoint: null,
+        startMarker: null,
+        b12Marker: null,
+        b23Marker: null,
       };
     }
 
@@ -250,10 +249,9 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
         sector1Path: '',
         sector2Path: '',
         sector3Path: '',
-        fullTrackPath: '',
-        startPoint: null,
-        s1BoundaryPoint: null,
-        s2BoundaryPoint: null,
+        startMarker: null,
+        b12Marker: null,
+        b23Marker: null,
       };
     }
 
@@ -266,26 +264,104 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
       }, '');
     };
 
-    const fullPath = buildPath(pts) + ' Z';
 
-    const s1Pts = pts.filter((p) => p.sector === 1);
-    const s2Pts = pts.filter((p) => p.sector === 2);
-    const s3Pts = pts.filter((p) => p.sector === 3);
+    // Cumulative arc length along the lap, used to trim the sector ends
+    const cum: number[] = [0];
+    for (let i = 1; i < pts.length; i++) {
+      cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+    }
+    const totalLen = cum[cum.length - 1];
 
-    // Continuous sector segments without array mutations
-    const s1Segment = s2Pts.length > 0 ? [...s1Pts, s2Pts[0]] : s1Pts;
-    const s2Segment = s3Pts.length > 0 ? [...s2Pts, s3Pts[0]] : s2Pts;
-    const s3Segment = pts.length > 0 ? [...s3Pts, pts[0]] : s3Pts;
+    // Each sector is drawn as its own line with a small gap at the sector
+    // boundaries — round caps on both sides, no hard edges. Sector 3 wraps
+    // back to the start/finish line, so it also gets trimmed there.
+    //
+    // GAP_TRIM is the VISIBLE clear gap you see between the sector lines.
+    // Because a round cap extends half the stroke width (13 units) past the
+    // line's last point, the actual point trimming is GAP_TRIM/2 + 13.
+    const GAP_TRIM = 3; // visible clear gap in SVG units
+    const CAP_RADIUS = 13; // half of the 26-unit asphalt stroke
+    const TRIM = GAP_TRIM / 2 + CAP_RADIUS;
+    const buildSectorPath = (sector: number, wraps: boolean) => {
+      const idxs: number[] = [];
+      pts.forEach((p, i) => {
+        if (p.sector === sector) idxs.push(i);
+      });
+      if (idxs.length === 0) return '';
+      const startLen = cum[idxs[0]];
+      const endLen = wraps ? totalLen : cum[idxs[idxs.length - 1]];
+      const kept = idxs.filter((i) => cum[i] > startLen + TRIM && cum[i] < endLen - TRIM);
+      const list = kept.length >= 2 ? kept.map((i) => pts[i]) : idxs.map((i) => pts[i]);
+      return buildPath(list);
+    };
+
+    // Marker geometry: a boundary marker sits exactly in the middle of the
+    // gap between two sectors (by arc length) and its label is offset along
+    // the normal pointing away from the track's centroid — so it never sticks
+    // to the line and is always readable.
+    const s1Idxs: number[] = [];
+    const s2Idxs: number[] = [];
+    const s3Idxs: number[] = [];
+    pts.forEach((p, i) => {
+      if (p.sector === 1) s1Idxs.push(i);
+      else if (p.sector === 2) s2Idxs.push(i);
+      else s3Idxs.push(i);
+    });
+
+    let centroidX = 0;
+    let centroidY = 0;
+    for (const p of pts) {
+      centroidX += p.x;
+      centroidY += p.y;
+    }
+    centroidX /= pts.length;
+    centroidY /= pts.length;
+
+    interface GapMarker {
+      x: number;
+      y: number;
+      lx: number;
+      ly: number;
+    }
+
+    const LABEL_OFFSET = 44; // pill floats clear of the dot and the asphalt ribbon
+
+    const gapMarker = (prevIdx: number, nextIdx: number): GapMarker | null => {
+      if (prevIdx < 0 || nextIdx < 0) return null;
+      const a = pts[prevIdx];
+      const b = pts[nextIdx];
+      // Mid-gap by arc length between the two adjacent samples
+      const ca = cum[prevIdx];
+      const cb = cum[nextIdx];
+      const t = cb > ca ? ((ca + cb) / 2 - ca) / (cb - ca) : 0.5;
+      const x = a.x + (b.x - a.x) * t;
+      const y = a.y + (b.y - a.y) * t;
+      // Unit direction along the lap, then its normal
+      const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+      const nx = -(b.y - a.y) / len;
+      const ny = (b.x - a.x) / len;
+      // Flip the normal so the label faces away from the track centre
+      const flip = (x - centroidX) * nx + (y - centroidY) * ny < 0 ? -1 : 1;
+      return {
+        x,
+        y,
+        lx: x + flip * nx * LABEL_OFFSET,
+        ly: y + flip * ny * LABEL_OFFSET,
+      };
+    };
+
+    const lastIdxOf = (idxs: number[]) => (idxs.length ? idxs[idxs.length - 1] : -1);
+    const firstIdxOf = (idxs: number[]) => (idxs.length ? idxs[0] : -1);
 
     return {
       mappedPoints: pts,
-      sector1Path: buildPath(s1Segment),
-      sector2Path: buildPath(s2Segment),
-      sector3Path: buildPath(s3Segment),
-      fullTrackPath: fullPath,
-      startPoint: pts[0],
-      s1BoundaryPoint: s2Pts[0] || null,
-      s2BoundaryPoint: s3Pts[0] || null,
+      sector1Path: buildSectorPath(1, false),
+      sector2Path: buildSectorPath(2, false),
+      sector3Path: buildSectorPath(3, true),
+      // Start/finish closes the lap: gap between the last S3 point and point 0
+      startMarker: gapMarker(lastIdxOf(s3Idxs), 0),
+      b12Marker: gapMarker(lastIdxOf(s1Idxs), firstIdxOf(s2Idxs)),
+      b23Marker: gapMarker(lastIdxOf(s2Idxs), firstIdxOf(s3Idxs)),
     };
   }, [layout]);
 
@@ -314,6 +390,28 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
       }))
       .sort((a, b) => a.t - b.t);
   }, [layout, trajectory]);
+
+  // The lap trail: the path the car has driven so far, painted in its team
+  // colour. Built from the same timed points as the car, with cumulative
+  // lengths so a lap time maps to a drawn length via stroke-dasharray.
+  const trail = useMemo(() => {
+    const timed: TimedPathPoint[] =
+      trajectoryPts.length >= 2
+        ? trajectoryPts
+        : mappedPoints.map((p, i) => ({
+            x: p.x,
+            y: p.y,
+            t: (i / Math.max(1, mappedPoints.length - 1)) * totalLapDuration,
+          }));
+    if (timed.length < 2) return null;
+    const cum = [0];
+    let d = `M ${timed[0].x.toFixed(1)} ${timed[0].y.toFixed(1)}`;
+    for (let i = 1; i < timed.length; i++) {
+      cum.push(cum[i - 1] + Math.hypot(timed[i].x - timed[i - 1].x, timed[i].y - timed[i - 1].y));
+      d += ` L ${timed[i].x.toFixed(1)} ${timed[i].y.toFixed(1)}`;
+    }
+    return { d, cum, ts: timed.map((p) => p.t), total: cum[cum.length - 1] };
+  }, [trajectoryPts, mappedPoints, totalLapDuration]);
 
   // Paints the current playback position straight to the DOM: car marker,
   // hover card position, and playhead. Called from the rAF loop and on scrub,
@@ -360,11 +458,32 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
         cardRef.current.style.top = `${Math.round(top)}px`;
       }
 
+      if (trailRef.current && trail) {
+        const lapTime = Math.min(Math.max(p, 0), 1) * totalLapDuration;
+        const { ts, cum, total } = trail;
+        let drawn = 0;
+        if (lapTime >= ts[ts.length - 1]) {
+          drawn = total;
+        } else if (lapTime > ts[0]) {
+          let lo = 0;
+          let hi = ts.length - 1;
+          while (lo < hi - 1) {
+            const mid = (lo + hi) >>> 1;
+            if (ts[mid] <= lapTime) lo = mid;
+            else hi = mid;
+          }
+          const span = ts[hi] - ts[lo];
+          const f = span > 0 ? (lapTime - ts[lo]) / span : 0;
+          drawn = cum[lo] + (cum[hi] - cum[lo]) * f;
+        }
+        trailRef.current.style.strokeDasharray = `${drawn.toFixed(1)} ${(total + 10).toFixed(1)}`;
+      }
+
       const pct = `${(p * 100).toFixed(2)}%`;
       if (playheadFillRef.current) playheadFillRef.current.style.width = pct;
       if (playheadThumbRef.current) playheadThumbRef.current.style.left = pct;
     },
-    [totalLapDuration, trajectoryPts, mappedPoints]
+    [totalLapDuration, trajectoryPts, mappedPoints, trail]
   );
 
   // Stage measurement via callback ref: a plain mount-effect would run while
@@ -444,122 +563,124 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
     [safeProgress, totalLapDuration, trajectoryPts, mappedPoints]
   );
 
+  // Timing-screen colours for completed sector splits, compared against the
+  // pole lap's sector splits (not the session-best per sector).
+  const bench = layout?.sectors;
+  const timing: [SectorTiming, SectorTiming, SectorTiming] = [
+    sectorTiming(driverLap?.duration_sector_1, bench?.sector_1),
+    sectorTiming(driverLap?.duration_sector_2, bench?.sector_2),
+    sectorTiming(driverLap?.duration_sector_3, bench?.sector_3),
+  ];
+  const timingColor = (t: SectorTiming): string =>
+    t === 'purple' ? '#b06dff' : t === 'yellow' ? '#e6c34a' : '#ffffff';
+
   // Static track artwork memoised as a single React element: when React
   // re-renders during playback it sees an identical element reference and
-  // skips this whole subtree (including the SVG filter work)
+  // skips this whole subtree
+  const sectorLines = [sector1Path, sector2Path, sector3Path];
   const trackVisuals = useMemo(
     () => (
       <>
-        <defs>
-          <filter id="trackGlow" x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur stdDeviation="3.5" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
-
-        {/* Layer 1: Outer Shadow & Base Contour */}
-        <path
-          d={fullTrackPath}
-          fill="none"
-          stroke="rgba(0,0,0,0.85)"
-          strokeWidth="34"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-
-        {/* Layer 2: Main Dark Asphalt Ribbon */}
-        <path
-          d={fullTrackPath}
-          fill="none"
-          stroke="#1c202c"
-          strokeWidth="26"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-
-        {/* Layer 3: Inner Guide */}
-        <path
-          d={fullTrackPath}
-          fill="none"
-          stroke="#3a4258"
-          strokeWidth="10"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-
-        {/* Layer 4: Sector 1 Glowing Line (Cyan) */}
-        <path
-          d={sector1Path}
-          fill="none"
-          stroke="#00F0FF"
-          strokeWidth="6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          opacity={currentSector === 1 ? 1 : 0.7}
-          filter={currentSector === 1 ? 'url(#trackGlow)' : undefined}
-        />
-
-        {/* Layer 5: Sector 2 Glowing Line (Purple) */}
-        <path
-          d={sector2Path}
-          fill="none"
-          stroke="#A855F7"
-          strokeWidth="6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          opacity={currentSector === 2 ? 1 : 0.7}
-          filter={currentSector === 2 ? 'url(#trackGlow)' : undefined}
-        />
-
-        {/* Layer 6: Sector 3 Glowing Line (Emerald) */}
-        <path
-          d={sector3Path}
-          fill="none"
-          stroke="#10B981"
-          strokeWidth="6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          opacity={currentSector === 3 ? 1 : 0.7}
-          filter={currentSector === 3 ? 'url(#trackGlow)' : undefined}
-        />
-
-        {/* Sector Boundary Badges on Track */}
-        {s1BoundaryPoint && (
-          <g transform={`translate(${s1BoundaryPoint.x}, ${s1BoundaryPoint.y})`}>
-            <circle r="4" fill="#00F0FF" />
-            <text x="8" y="3" fill="#00F0FF" fontSize="10" fontFamily="monospace" fontWeight="bold">
-              S1 / S2
-            </text>
-          </g>
+        {/* Monochrome asphalt, split into three sector lines with small gaps
+            of raw background between them (round caps, no hard edges) */}
+        {sectorLines.map((d, i) =>
+          d ? (
+            <React.Fragment key={`sector-${i}`}>
+              {/* Outer shadow */}
+              <path
+                d={d}
+                fill="none"
+                stroke="rgba(0,0,0,0.85)"
+                strokeWidth="34"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              {/* Asphalt ribbon */}
+              <path
+                d={d}
+                fill="none"
+                stroke="#1c202c"
+                strokeWidth="26"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              {/* Inner guide */}
+              <path
+                d={d}
+                fill="none"
+                stroke="#3a4258"
+                strokeWidth="10"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </React.Fragment>
+          ) : null
         )}
 
-        {s2BoundaryPoint && (
-          <g transform={`translate(${s2BoundaryPoint.x}, ${s2BoundaryPoint.y})`}>
-            <circle r="4" fill="#A855F7" />
-            <text x="8" y="3" fill="#A855F7" fontSize="10" fontFamily="monospace" fontWeight="bold">
-              S2 / S3
-            </text>
-          </g>
+        {/* Sector Boundary Markers: dot centred in the gap, label pill
+            offset perpendicular away from the track */}
+        {[
+          { m: b12Marker, label: 'S1 / S2' },
+          { m: b23Marker, label: 'S2 / S3' },
+        ].map(({ m, label }) =>
+          m ? (
+            <g key={label}>
+              <circle cx={m.x} cy={m.y} r="3" fill="#8b8b90" opacity="0.9" />
+              <g transform={`translate(${m.lx}, ${m.ly})`}>
+                <rect
+                  x={-(label.length * 3.4 + 8)}
+                  y="-9"
+                  width={label.length * 6.8 + 16}
+                  height="18"
+                  rx="9"
+                  fill="rgba(7,8,11,0.85)"
+                  stroke="rgba(139,139,144,0.35)"
+                  strokeWidth="1"
+                />
+                <text
+                  y="3.5"
+                  textAnchor="middle"
+                  fill="#a1a1a6"
+                  fontSize="10"
+                  fontFamily="monospace"
+                >
+                  {label}
+                </text>
+              </g>
+            </g>
+          ) : null
         )}
 
-        {/* Start / Finish Checkered Marker */}
-        {startPoint && (
-          <g transform={`translate(${startPoint.x}, ${startPoint.y})`}>
-            <circle r="7" fill="#ffffff" stroke="#e10600" strokeWidth="2.5" />
-            <g transform="translate(10, -5)">
-              <rect x="0" y="0" width="56" height="18" rx="4" fill="rgba(10,12,18,0.85)" stroke="rgba(255,255,255,0.2)" />
-              <text x="6" y="12" fill="#ffffff" fontSize="9" fontFamily="monospace" fontWeight="bold">
-                🏁 S / F
+        {/* Start / Finish: marker centred in the gap, label pill offset */}
+        {startMarker && (
+          <g>
+            <circle cx={startMarker.x} cy={startMarker.y} r="4" fill="#ffffff" stroke="#e10600" strokeWidth="2" />
+            <g transform={`translate(${startMarker.lx}, ${startMarker.ly})`}>
+              <rect
+                x="-22"
+                y="-9"
+                width="44"
+                height="18"
+                rx="9"
+                fill="rgba(7,8,11,0.85)"
+                stroke="rgba(255,255,255,0.3)"
+                strokeWidth="1"
+              />
+              <text
+                y="3.5"
+                textAnchor="middle"
+                fill="#ffffff"
+                fontSize="10"
+                fontFamily="monospace"
+              >
+                Start
               </text>
             </g>
           </g>
         )}
       </>
     ),
-    [fullTrackPath, sector1Path, sector2Path, sector3Path, s1BoundaryPoint, s2BoundaryPoint, startPoint, currentSector]
+    [sector1Path, sector2Path, sector3Path, startMarker, b12Marker, b23Marker]
   );
 
 
@@ -618,15 +739,7 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
               <span>•</span>
               <span className="flex items-center gap-1.5">
                 ACTIVE SECTOR:
-                <span
-                  className={`font-bold px-1.5 py-px rounded text-[10px] ${
-                    currentSector === 1
-                      ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
-                      : currentSector === 2
-                      ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
-                      : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                  }`}
-                >
+                <span className="font-bold px-1.5 py-px rounded text-[10px] border border-white/[0.25] bg-white/[0.06] text-white">
                   SECTOR {currentSector}
                 </span>
               </span>
@@ -639,13 +752,16 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
           {/* Sector 1 split */}
           <div className={`flex flex-col px-3 py-1 rounded-lg border transition-all ${
             currentSector === 1
-              ? 'bg-cyan-500/15 border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.2)]'
+              ? 'bg-white/[0.08] border-white/[0.25]'
               : safeProgress > s1Fraction
               ? 'bg-white/[0.04] border-white/[0.08]'
               : 'bg-black/30 border-white/[0.04] opacity-50'
           }`}>
-            <span className="text-[9px] font-mono font-bold text-cyan-400">SECTOR 1</span>
-            <span className="text-xs font-mono font-bold text-white">
+            <span className="text-[9px] font-mono font-bold text-zinc-400">SECTOR 1</span>
+            <span
+              className="text-xs font-mono font-bold"
+              style={{ color: safeProgress > s1Fraction ? timingColor(timing[0]) : '#ffffff' }}
+            >
               {safeProgress > s1Fraction ? formatTimeMMSS(s1Time) : currentSector === 1 ? formatTimeMMSS(currentLapTime) : '--.---'}
             </span>
           </div>
@@ -653,13 +769,16 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
           {/* Sector 2 split */}
           <div className={`flex flex-col px-3 py-1 rounded-lg border transition-all ${
             currentSector === 2
-              ? 'bg-purple-500/15 border-purple-500/50 shadow-[0_0_15px_rgba(168,85,247,0.2)]'
+              ? 'bg-white/[0.08] border-white/[0.25]'
               : safeProgress > s2Fraction
               ? 'bg-white/[0.04] border-white/[0.08]'
               : 'bg-black/30 border-white/[0.04] opacity-50'
           }`}>
-            <span className="text-[9px] font-mono font-bold text-purple-400">SECTOR 2</span>
-            <span className="text-xs font-mono font-bold text-white">
+            <span className="text-[9px] font-mono font-bold text-zinc-400">SECTOR 2</span>
+            <span
+              className="text-xs font-mono font-bold"
+              style={{ color: safeProgress > s2Fraction ? timingColor(timing[1]) : '#ffffff' }}
+            >
               {safeProgress > s2Fraction ? formatTimeMMSS(s2Time) : currentSector === 2 ? formatTimeMMSS(currentLapTime - s1Time) : '--.---'}
             </span>
           </div>
@@ -667,13 +786,16 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
           {/* Sector 3 split */}
           <div className={`flex flex-col px-3 py-1 rounded-lg border transition-all ${
             currentSector === 3
-              ? 'bg-emerald-500/15 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.2)]'
+              ? 'bg-white/[0.08] border-white/[0.25]'
               : safeProgress >= 0.99
               ? 'bg-white/[0.04] border-white/[0.08]'
               : 'bg-black/30 border-white/[0.04] opacity-50'
           }`}>
-            <span className="text-[9px] font-mono font-bold text-emerald-400">SECTOR 3</span>
-            <span className="text-xs font-mono font-bold text-white">
+            <span className="text-[9px] font-mono font-bold text-zinc-400">SECTOR 3</span>
+            <span
+              className="text-xs font-mono font-bold"
+              style={{ color: safeProgress >= 0.99 ? timingColor(timing[2]) : '#ffffff' }}
+            >
               {safeProgress >= 0.99 ? formatTimeMMSS(s3Time) : currentSector === 3 ? formatTimeMMSS(currentLapTime - s1Time - s2Time) : '--.---'}
             </span>
           </div>
@@ -686,17 +808,25 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
         className="circuit-stage relative flex-1 flex items-center justify-center p-2 overflow-hidden"
       >
         <div className="circuit-grid pointer-events-none absolute inset-0" />
-        <div
-          className="pointer-events-none absolute inset-0"
-          style={{
-            background: `radial-gradient(ellipse at 50% 55%, ${driverColor}33, transparent 62%)`,
-          }}
-        />
         <svg
           viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
           className="relative z-[1] h-full w-full select-none"
         >
           {trackVisuals}
+
+          {/* The lap so far, painted in the team colour */}
+          {trail && (
+            <path
+              ref={trailRef}
+              d={trail.d}
+              fill="none"
+              stroke={driverColor}
+              strokeWidth="10"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ strokeDasharray: `0 ${trail.total + 10}` }}
+            />
+          )}
 
           {/* Car Marker (Pure Hardware-Accelerated SVG - 100% Gecko/Firefox Safe) */}
           {uiCarPos && (
@@ -742,7 +872,7 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
                 <rect
                   x="0"
                   y="0"
-                  width="36"
+                  width="38"
                   height="18"
                   rx="9"
                   fill="rgba(11,13,19,0.92)"
@@ -750,8 +880,9 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
                   strokeWidth="1.2"
                 />
                 <text
-                  x="5"
+                  x="19"
                   y="13"
+                  textAnchor="middle"
                   fill="#ffffff"
                   fontSize="10"
                   fontFamily="Formula1-Display-Bold, Formula1-Bold, sans-serif"
@@ -827,9 +958,6 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
                   <span className="text-xs text-white tracking-wide" style={{ fontFamily: 'Formula1-Display-Bold, Formula1-Bold, sans-serif' }}>
                     {selectedDriver?.name_acronym}
                   </span>
-                  <span className="text-sm leading-none" title={selectedDriver?.country_code}>
-                    {getCountryFlag(selectedDriver?.country_code)}
-                  </span>
                   <span
                     className="text-[10px] font-mono font-bold px-1.5 py-px rounded-md"
                     style={{ backgroundColor: `${driverColor}30`, color: driverColor, border: `1px solid ${driverColor}50` }}
@@ -852,39 +980,48 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
                   {/* Sector 1 */}
                   <div className={`flex flex-col px-2 py-1 rounded-lg border transition-all ${
                     currentSector === 1
-                      ? 'border-cyan-500/60 bg-cyan-500/20 shadow-[0_0_10px_rgba(6,182,212,0.3)]'
-                      : 'border-cyan-500/30 bg-cyan-500/10'
+                      ? 'bg-white/[0.08] border-white/[0.2]'
+                      : 'bg-black/30 border-white/[0.08]'
                   }`}>
-                    <span className="text-[8px] font-mono font-bold text-cyan-400">SECTOR 1</span>
-                    <span className="text-[10px] font-mono font-bold text-white">
+                    <span className="text-[8px] font-mono font-bold text-zinc-400">SECTOR 1</span>
+                    <span
+                      className="text-[10px] font-mono font-bold"
+                      style={{ color: currentSector === 1 ? '#ffffff' : timingColor(timing[0]) }}
+                    >
                       {currentSector === 1 ? formatTimeMMSS(currentLapTime) : (sectorTimes.s1 ? formatTimeMMSS(sectorTimes.s1) : '--.---')}
                     </span>
                   </div>
                   {/* Sector 2 */}
                   <div className={`flex flex-col px-2 py-1 rounded-lg border transition-all ${
                     currentSector === 2
-                      ? 'border-purple-500/60 bg-purple-500/20 shadow-[0_0_10px_rgba(168,85,247,0.3)]'
-                      : 'border-purple-500/30 bg-purple-500/10'
+                      ? 'bg-white/[0.08] border-white/[0.2]'
+                      : 'bg-black/30 border-white/[0.08]'
                   }`}>
-                    <span className="text-[8px] font-mono font-bold text-purple-400">SECTOR 2</span>
-                    <span className="text-[10px] font-mono font-bold text-white">
+                    <span className="text-[8px] font-mono font-bold text-zinc-400">SECTOR 2</span>
+                    <span
+                      className="text-[10px] font-mono font-bold"
+                      style={{ color: currentSector === 2 ? '#ffffff' : timingColor(timing[1]) }}
+                    >
                       {currentSector === 2 ? formatTimeMMSS(currentLapTime - s1Time) : (sectorTimes.s2 ? formatTimeMMSS(sectorTimes.s2) : '--.---')}
                     </span>
                   </div>
                   {/* Sector 3 */}
                   <div className={`flex flex-col px-2 py-1 rounded-lg border transition-all ${
                     currentSector === 3
-                      ? 'border-emerald-500/60 bg-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
-                      : 'border-emerald-500/30 bg-emerald-500/10'
+                      ? 'bg-white/[0.08] border-white/[0.2]'
+                      : 'bg-black/30 border-white/[0.08]'
                   }`}>
-                    <span className="text-[8px] font-mono font-bold text-emerald-400">SECTOR 3</span>
-                    <span className="text-[10px] font-mono font-bold text-white">
+                    <span className="text-[8px] font-mono font-bold text-zinc-400">SECTOR 3</span>
+                    <span
+                      className="text-[10px] font-mono font-bold"
+                      style={{ color: currentSector === 3 ? '#ffffff' : timingColor(timing[2]) }}
+                    >
                       {currentSector === 3 ? formatTimeMMSS(currentLapTime - s1Time - s2Time) : (sectorTimes.s3 ? formatTimeMMSS(sectorTimes.s3) : '--.---')}
                     </span>
                   </div>
                 </div>
                 {/* Pin indicator icon - top right */}
-                {isPinned && <Pin size={14} className="absolute top-2 right-2 text-emerald-400 shrink-0" />}
+                {isPinned && <Pin size={14} className="absolute top-2 right-2 text-white shrink-0" />}
               </div>
             </div>
           </div>
@@ -899,13 +1036,13 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
       <div className="border-t border-white/[0.06] bg-black/50 p-4 backdrop-blur-md space-y-3">
         {/* Sector Labels */}
         <div className="flex justify-between text-[10px] font-mono text-zinc-400">
-          <span className="flex items-center gap-1 text-cyan-400 font-bold">
+          <span className={`flex items-center gap-1 font-bold ${currentSector === 1 ? 'text-white' : 'text-zinc-400'}`}>
             SECTOR 1 (0:00.000 - {formatTimeMMSS(s1Time)})
           </span>
-          <span className="flex items-center gap-1 text-purple-400 font-bold">
+          <span className={`flex items-center gap-1 font-bold ${currentSector === 2 ? 'text-white' : 'text-zinc-400'}`}>
             SECTOR 2 ({formatTimeMMSS(s1Time)} - {formatTimeMMSS(s1Time + s2Time)})
           </span>
-          <span className="flex items-center gap-1 text-emerald-400 font-bold">
+          <span className={`flex items-center gap-1 font-bold ${currentSector === 3 ? 'text-white' : 'text-zinc-400'}`}>
             SECTOR 3 ({formatTimeMMSS(s1Time + s2Time)} - {formatTimeMMSS(totalLapDuration)})
           </span>
         </div>
@@ -924,11 +1061,14 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
               className="absolute top-0 bottom-0 border-r border-white/20 z-10"
               style={{ left: `${(s2Fraction * 100).toFixed(1)}%` }}
             />
-            {/* Progress Fill */}
+            {/* Progress Fill — painted in the team colour, like the lap itself */}
             <div
               ref={playheadFillRef}
-              className="h-full bg-gradient-to-r from-cyan-500 via-purple-500 to-emerald-500"
-              style={{ width: `${(safeProgress * 100).toFixed(2)}%` }}
+              className="h-full"
+              style={{
+                width: `${(safeProgress * 100).toFixed(2)}%`,
+                backgroundColor: driverColor,
+              }}
             />
           </div>
 
@@ -959,8 +1099,8 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
           {/* Custom Glowing Thumb Marker */}
           <div
             ref={playheadThumbRef}
-            className="absolute h-4 w-4 rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.9)] border-2 border-red-600 pointer-events-none -translate-x-1/2 transition-transform"
-            style={{ left: `${(safeProgress * 100).toFixed(2)}%` }}
+            className="absolute h-4 w-4 rounded-full bg-white border-2 pointer-events-none -translate-x-1/2"
+            style={{ left: `${(safeProgress * 100).toFixed(2)}%`, borderColor: driverColor }}
           />
         </div>
 
@@ -970,7 +1110,7 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
           <div className="flex items-center gap-2">
             <button
               onClick={() => setIsPlaying(!isPlaying)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-semibold text-xs transition-all shadow-[0_0_15px_rgba(225,6,0,0.3)] active:scale-95"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-semibold text-xs transition-colors active:scale-95"
             >
               {isPlaying ? <Pause size={14} /> : <Play size={14} />}
               <span>{isPlaying ? 'PAUSE' : 'PLAY'}</span>
@@ -978,7 +1118,11 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
 
             <button
               onClick={() => {
+                progressRef.current = 0;
+                sectorTimesRef.current = {};
+                setSectorTimes({});
                 setProgress(0);
+                applyPosition(0);
                 setIsPlaying(true);
               }}
               className="p-1.5 rounded-lg border border-white/[0.08] bg-white/[0.04] text-zinc-300 hover:text-white hover:bg-white/[0.08] transition-all"
@@ -994,9 +1138,9 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
                 <button
                   key={spd}
                   onClick={() => setPlaybackSpeed(spd)}
-                  className={`px-2 py-0.5 rounded text-[11px] font-bold transition-all ${
+                  className={`px-2 py-0.5 rounded text-[11px] font-bold transition-colors ${
                     playbackSpeed === spd
-                      ? 'bg-red-600 text-white shadow-sm'
+                      ? 'bg-white/[0.12] text-white'
                       : 'text-zinc-400 hover:text-zinc-200'
                   }`}
                 >

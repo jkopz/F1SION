@@ -33,8 +33,8 @@ wheels/
 # Backend cache
 backend/cache/
 
-# Proprietary fonts (not openly licensed)
-frontend/public/fonts/
+# Proprietary fonts (not openly licensed) — Titillium Web substitute is vendored
+frontend/public/fonts/Formula1*
 
 # Frontend
 node_modules/
@@ -46,6 +46,7 @@ frontend/build/
 .DS_Store
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 .env

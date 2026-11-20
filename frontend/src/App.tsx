@@ -11,9 +11,20 @@ import {
   fetchDriverTrajectory,
   shutdownServer,
 } from './services/api';
-import { formatTimeMMSS } from './utils/driver';
+import { formatGap, formatTimeMMSS } from './utils/driver';
 import { Driver, DriverLap, DriverTrajectory, Session, TrackLayout } from './types/f1';
-import { Activity, Zap, Cpu, Sparkles, ChevronRight, Power, CheckCircle, AlertTriangle } from 'lucide-react';
+import { ChevronRight, Power, CheckCircle, AlertTriangle } from 'lucide-react';
+
+/** Metric card contents: label, number and what it refers to */
+function Stat({ label, value, note }: { label: string; value: React.ReactNode; note?: React.ReactNode }) {
+  return (
+    <div className="flex flex-col p-3 rounded-xl border border-white/[0.06] bg-white/[0.02] backdrop-blur-xl">
+      <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider block">{label}</span>
+      <span className="text-xs font-mono font-bold text-white">{value}</span>
+      <span className="text-[10px] font-mono text-zinc-500 mt-0.5">{note}</span>
+    </div>
+  );
+}
 
 /** Subtle cursor-following livery glow — tuned down from the original */
 function CursorGlow({ color }: { color: string }) {
@@ -264,7 +275,10 @@ export const App: React.FC = () => {
       {/* Error notification banner */}
       {error && (
         <div className="mx-6 mt-3 px-4 py-2 rounded-xl bg-red-950/70 border border-red-500/50 text-red-200 text-xs flex items-center justify-between z-40 backdrop-blur-md">
-          <span>⚠️ {error}</span>
+          <span className="flex items-center gap-2">
+            <AlertTriangle size={14} className="shrink-0" />
+            {error}
+          </span>
           <button
             onClick={() => setError(null)}
             className="text-[11px] font-mono underline hover:text-white"
@@ -277,54 +291,36 @@ export const App: React.FC = () => {
       {/* Main Qualifying Analysis Viewport */}
       <main className="flex-1 flex flex-col p-4 md:p-6 overflow-hidden gap-4">
         {/* Quick Metrics Ribbon */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="flex items-center gap-3 p-3 rounded-xl border border-white/[0.06] bg-white/[0.02] backdrop-blur-xl">
-            <div className="p-2 rounded-lg bg-red-600/20 text-red-400 border border-red-500/30">
-              <Activity size={16} />
-            </div>
-            <div>
-              <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider block">CIRCUIT</span>
-              <span className="text-xs font-bold text-white uppercase">
-                {selectedSession ? `${selectedSession.circuit_short_name}` : '...'}
-              </span>
-            </div>
-          </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <Stat
+            label="CIRCUIT"
+            value={selectedSession ? selectedSession.circuit_short_name : '...'}
+            note={selectedSession
+              ? new Date(selectedSession.date_start).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+              : undefined}
+          />
 
-          <div className="flex items-center gap-3 p-3 rounded-xl border border-white/[0.06] bg-white/[0.02] backdrop-blur-xl">
-            <div className="p-2 rounded-lg bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
-              <Zap size={16} />
-            </div>
-            <div>
-              <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider block">SESSION POLE</span>
-              <span className="text-xs font-mono font-bold text-white">
-                {layout?.lap_duration ? formatTimeMMSS(layout.lap_duration) : '--.---'}
-              </span>
-            </div>
-          </div>
+          <Stat
+            label="SESSION POLE"
+            value={layout?.lap_duration ? formatTimeMMSS(layout.lap_duration) : '--.---'}
+            note={
+              drivers[0]
+                ? `${drivers[0].name_acronym} · ${drivers[0].team_name}`
+                : undefined
+            }
+          />
 
-          <div className="flex items-center gap-3 p-3 rounded-xl border border-white/[0.06] bg-white/[0.02] backdrop-blur-xl">
-            <div className="p-2 rounded-lg bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
-              <Cpu size={16} />
-            </div>
-            <div>
-              <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider block">ACTIVE DRIVER LAP</span>
-              <span className="text-xs font-mono font-bold text-cyan-400">
-                {driverLap?.lap_duration ? formatTimeMMSS(driverLap.lap_duration) : 'CALCULATING...'}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 p-3 rounded-xl border border-white/[0.06] bg-white/[0.02] backdrop-blur-xl">
-            <div className="p-2 rounded-lg bg-purple-500/20 text-purple-400 border border-purple-500/30">
-              <Sparkles size={16} />
-            </div>
-            <div>
-              <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider block">TIRE COMPOUND</span>
-              <span className="text-xs font-mono font-bold text-purple-300">
-                {driverLap?.compound && driverLap.compound !== 'UNKNOWN' ? driverLap.compound : 'SOFT (C4)'}
-              </span>
-            </div>
-          </div>
+          <Stat
+            label={selectedDriver ? `${selectedDriver.name_acronym} LAP` : 'ACTIVE DRIVER LAP'}
+            value={driverLap?.lap_duration ? formatTimeMMSS(driverLap.lap_duration) : 'CALCULATING...'}
+            note={
+              driverLap?.lap_duration && layout?.lap_duration
+                ? driverLap.lap_duration - (layout.lap_duration ?? 0) <= 0.0005
+                  ? 'Pole lap'
+                  : `${formatGap(driverLap.lap_duration - layout.lap_duration)} to pole`
+                : undefined
+            }
+          />
         </div>
 
         {/* Primary Workspace: Full Responsive Split */}

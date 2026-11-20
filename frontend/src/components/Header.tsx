@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { Session } from '../types/f1';
-import { Radio, Calendar, Sparkles, Activity, Power, Zap, Lock } from 'lucide-react';
+import { Radio, Calendar, Watch, Activity, Power, Zap, Lock } from 'lucide-react';
 
 interface HeaderProps {
   sessions: Session[];
@@ -23,9 +23,9 @@ export const Header: React.FC<HeaderProps> = memo(function Header({
   onShutdownRequest,
 }) {
   const tabs = [
-    { id: 'qualifying', label: 'QUALIFYING ANALYSIS', icon: Activity, locked: false },
-    { id: 'race', label: 'RACE TELEMETRY', icon: Radio, locked: true, badge: 'SOON' },
-    { id: 'predictions', label: 'AI PREDICTIONS', icon: Sparkles, locked: true, badge: 'SOON' },
+    { id: 'qualifying', label: 'QUALIFYING', icon: Activity, locked: false },
+    { id: 'race', label: 'RACE', icon: Radio, locked: true, badge: 'Soon' },
+    { id: 'predictions', label: 'PREDICTIONS', icon: Watch, locked: true, badge: 'Soon' },
   ];
 
   return (
@@ -37,18 +37,12 @@ export const Header: React.FC<HeaderProps> = memo(function Header({
             <Zap className="text-white" size={19} />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-f1-black tracking-wider uppercase flex items-center leading-none">
-                <span className="text-[#E10600]">F1</span>
-                <span className="text-white">SION</span>
-              </h1>
-              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-[10px] font-mono text-emerald-400">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" />
-                <span>ONLINE</span>
-              </div>
-            </div>
+            <h1 className="text-xl font-f1-black tracking-wider uppercase flex items-center leading-none">
+              <span className="text-[#E10600]">F1</span>
+              <span className="text-white">SION</span>
+            </h1>
             <p className="text-[10px] font-mono text-zinc-400 tracking-tight">
-              Beyond the race. <span className="text-zinc-200">Into the data.</span>
+              Beyond the race, <span className="text-zinc-200">into the data</span>
             </p>
           </div>
         </div>

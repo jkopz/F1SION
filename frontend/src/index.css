@@ -2,10 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Official Formula 1 Typefaces */
+/* F1-style typefaces.
+   The proprietary Formula1 *.ttf files are optional local files (gitignored):
+   drop them into frontend/public/fonts/ and they take priority automatically.
+   Otherwise the bundled open substitute Titillium Web (OFL, the classic F1
+   web font) is used, loaded from the vendored files below. */
 @font-face {
   font-family: 'Formula1';
-  src: url('/fonts/Formula1-Regular.ttf') format('truetype');
+  src: url('/fonts/Formula1-Regular.ttf') format('truetype'),
+       url('/fonts/TitilliumWeb-Regular.woff2') format('woff2');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -13,16 +18,18 @@
 
 @font-face {
   font-family: 'Formula1-Bold';
-  src: url('/fonts/Formula1-Bold.ttf') format('truetype');
+  src: url('/fonts/Formula1-Bold.ttf') format('truetype'),
+       url('/fonts/TitilliumWeb-Bold.woff2') format('woff2');
   font-weight: 700;
   font-style: normal;
   font-display: swap;
 }
 
-/* Formula1 Display Bold — same file, registered under its official marketing name */
+/* Formula1 Display Bold — the heavy display cut used for acronyms */
 @font-face {
   font-family: 'Formula1-Display-Bold';
-  src: url('/fonts/Formula1-Bold.ttf') format('truetype');
+  src: url('/fonts/Formula1-Bold.ttf') format('truetype'),
+       url('/fonts/TitilliumWeb-Black.woff2') format('woff2');
   font-weight: 700;
   font-style: normal;
   font-display: swap;
@@ -30,7 +37,8 @@
 
 @font-face {
   font-family: 'Formula1-Wide';
-  src: url('/fonts/Formula1-Wide.ttf') format('truetype');
+  src: url('/fonts/Formula1-Wide.ttf') format('truetype'),
+       url('/fonts/TitilliumWeb-Black.woff2') format('woff2');
   font-weight: 800;
   font-style: normal;
   font-display: swap;
@@ -38,7 +46,8 @@
 
 @font-face {
   font-family: 'Formula1-Black';
-  src: url('/fonts/Formula1-Black.ttf') format('truetype');
+  src: url('/fonts/Formula1-Black.ttf') format('truetype'),
+       url('/fonts/TitilliumWeb-Black.woff2') format('woff2');
   font-weight: 900;
   font-style: normal;
   font-display: swap;

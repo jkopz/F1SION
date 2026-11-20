@@ -7,7 +7,7 @@
 [![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3.4-38B2AC.svg)](https://tailwindcss.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Beyond the race. Into the data.**
+**Beyond the race, into the data.**
 
 An F1 analytics, prediction and simulation platform. F1SION combines session data, an interactive circuit, and (coming next) machine learning models for qualifying and race outcomes.
 
@@ -15,7 +15,7 @@ An F1 analytics, prediction and simulation platform. F1SION combines session dat
 
 ## 🏁 Showcase
 
-**Qualifying Analysis** — live track animation with sector coloring, real-time lap playback and the full grid lineup:
+**Qualifying Analysis** — live track animation with real-time lap playback, sector split timing and the full grid lineup:
 
 ![F1SION Qualifying Analysis — Interlagos](docs/screenshots/dashboard.png)
 
@@ -26,13 +26,21 @@ soon™
 
 ---
 
-## ⚠️ Font License Notice
+## 🎨 Fonts
 
-**Important:** The Formula 1 typeface used for driver acronyms is **proprietary** and not openly licensed.
+The app ships with the bundled open substitute **Titillium Web** (SIL Open Font License, the classic F1 web font) — no setup required. The woff2 files live in `frontend/public/fonts/` together with the license (`LICENSE-TitilliumWeb.txt`).
 
-- For **personal, non-commercial use**: You can place the font files in `frontend/public/fonts/` (they will be ignored by Git)
-- For **public repositories / commercial use**: Replace with an open-source alternative
-- The font files are **excluded from version control** via `.gitignore`
+**Optional:** To use the authentic Formula 1 typeface for driver acronyms, drop the font files into `frontend/public/fonts/` (they take priority over Titillium automatically):
+
+- `Formula1-Regular.ttf`
+- `Formula1-Bold.ttf` (also used for the display/bold and wide cuts)
+- `Formula1-Wide.ttf`
+- `Formula1-Black.ttf`
+
+**Important:** The Formula 1 typeface is **proprietary** and not openly licensed.
+
+- For **personal, non-commercial use**: Place the files locally; they are **excluded from version control** via `.gitignore`.
+- For **public repositories / commercial use**: Keep the Titillium substitution or use another open-source alternative.
 
 ---
 
@@ -77,25 +85,6 @@ flowchart TD
         API --> Preds
     end
 ```
-
----
-
-## 🎨 Font Setup (Optional)
-
-To use the authentic Formula 1 typeface for driver acronyms:
-
-1. Create the fonts directory:
-   ```bash
-   mkdir -p frontend/public/fonts
-   ```
-2. Place the following font files in the directory:
-   - `Formula1-Regular.ttf`
-   - `Formula1-Bold.ttf`
-   - `Formula1-Wide.ttf`
-   - `Formula1-Black.ttf`
-   - `Formula1-Italic.ttf`
-
-**Note:** These fonts are proprietary. For open-source compliance, use Google Fonts alternatives.
 
 ---
 
@@ -151,8 +140,10 @@ f1sion/
 │   └── requirements.txt     # Python dependencies
 │
 ├── frontend/
+│   ├── public/
+│   │   └── fonts/           # Titillium Web substitute + optional Formula 1 fonts
 │   ├── src/
-│   │   ├── components/      # CircuitMap, Leaderboard, Header, Widgets
+│   │   ├── components/      # CircuitMap, Leaderboard, Header, ErrorBoundary
 │   │   ├── services/        # Typed API clients
 │   │   ├── types/           # TypeScript data interfaces
 │   │   ├── App.tsx          # Main dashboard container

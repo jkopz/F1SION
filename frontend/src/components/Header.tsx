@@ -25,7 +25,7 @@ export const Header: React.FC<HeaderProps> = memo(function Header({
   const tabs = [
     { id: 'qualifying', label: 'QUALIFYING', icon: Activity, locked: false },
     { id: 'race', label: 'RACE', icon: Radio, locked: true, badge: 'Soon' },
-    { id: 'predictions', label: 'PREDICTIONS', icon: Watch, locked: true, badge: 'Soon' },
+    { id: 'predictions', label: 'PREDICTIONS', icon: Watch, locked: false },
   ];
 
   return (

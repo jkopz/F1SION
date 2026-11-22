@@ -8,10 +8,13 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from app.data.openf1 import OpenF1Client
+from app.ml.features import build_weekend_features, resolve_weekend
+from app.ml.predictor import predict_race
 from app.models.schemas import (
     DriverLapResponse,
     DriverResponse,
     HealthResponse,
+    RacePredictionResponse,
     SessionResponse,
     TrackLayoutResponse,
     TrajectoryResponse,
@@ -250,6 +253,46 @@ async def get_laps(
     except Exception as exc:
         raise HTTPException(
             status_code=500, detail=f"Failed to fetch lap data: {str(exc)}"
+        ) from exc
+
+
+@router.get(
+    "/predictions/race",
+    response_model=RacePredictionResponse,
+    summary="Predict a Grand Prix outcome",
+    description=(
+        "Builds weekend features (FP1–FP3 pace, long-run pace, qualifying, "
+        "grid, track history, recent form, weather) and returns a predicted "
+        "finishing order with Monte-Carlo win/podium/points probabilities. "
+        "Accepts any session_key of the target weekend — the race session "
+        "is resolved automatically. Uses the trained XGBoost artifact when "
+        "available, otherwise the deterministic baseline."
+    ),
+)
+async def predict_race_endpoint(
+    session_key: int = Query(..., description="Any session_key of the Grand Prix weekend"),
+) -> RacePredictionResponse:
+    """Predicts the race outcome for the weekend containing ``session_key``."""
+    try:
+        weekend = await resolve_weekend(client, session_key)
+        race_session = weekend.get("race")
+        if not race_session:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No race session found for meeting {weekend.get('meeting_key')}.",
+            )
+        features = await build_weekend_features(client, race_session)
+        if not features.get("drivers"):
+            raise HTTPException(
+                status_code=404,
+                detail="No driver data available for this weekend — prediction impossible.",
+            )
+        return RacePredictionResponse(**await predict_race(features))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to predict race: {str(exc)}"
         ) from exc
 
 

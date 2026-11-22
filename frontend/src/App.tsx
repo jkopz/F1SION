@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Header } from './components/Header';
 import { CircuitMap } from './components/CircuitMap';
 import { Leaderboard } from './components/Leaderboard';
+import { PredictionsPanel } from './components/PredictionsPanel';
 import {
   fetchDriverLap,
   fetchDrivers,
@@ -15,13 +16,16 @@ import { formatGap, formatTimeMMSS } from './utils/driver';
 import { Driver, DriverLap, DriverTrajectory, Session, TrackLayout } from './types/f1';
 import { ChevronRight, Power, CheckCircle, AlertTriangle } from 'lucide-react';
 
-/** Metric card contents: label, number and what it refers to */
+/** Metric card contents: label, number and what it refers to.
+ *  Typography matched to the Predictions tab (bigger, high-contrast). */
 function Stat({ label, value, note }: { label: string; value: React.ReactNode; note?: React.ReactNode }) {
   return (
-    <div className="flex flex-col p-3 rounded-xl border border-white/[0.06] bg-white/[0.02] backdrop-blur-xl">
-      <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider block">{label}</span>
-      <span className="text-xs font-mono font-bold text-white">{value}</span>
-      <span className="text-[10px] font-mono text-zinc-500 mt-0.5">{note}</span>
+    <div className="flex flex-col p-4 rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl">
+      <span className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider block">{label}</span>
+      <span className="text-2xl font-mono font-black text-white leading-tight mt-1">{value}</span>
+      {note && (
+        <span className="text-xs font-mono text-zinc-400 mt-1">{note}</span>
+      )}
     </div>
   );
 }
@@ -288,8 +292,12 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* Main Qualifying Analysis Viewport */}
+      {/* Main Viewport: tab-switched between Qualifying Analysis & Predictions */}
       <main className="flex-1 flex flex-col p-4 md:p-6 overflow-hidden gap-4">
+        {activeTab === 'predictions' ? (
+          <PredictionsPanel />
+        ) : (
+        <>
         {/* Quick Metrics Ribbon */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <Stat
@@ -323,10 +331,11 @@ export const App: React.FC = () => {
           />
         </div>
 
-        {/* Primary Workspace: Full Responsive Split */}
+        {/* Primary Workspace: ~60/40 split — map left, leaderboard right in
+            the Predictions-tab row style */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 min-h-0">
-          {/* Left 8-9 cols: Circuit Map & Telemetry Canvas */}
-          <div className="lg:col-span-8 xl:col-span-9 h-full flex flex-col min-h-0">
+          {/* Left 7 cols: Circuit Map & Telemetry Canvas */}
+          <div className="lg:col-span-7 h-full flex flex-col min-h-0">
             <CircuitMap
               layout={layout}
               selectedDriver={selectedDriver}
@@ -338,8 +347,8 @@ export const App: React.FC = () => {
             />
           </div>
 
-          {/* Right 3-4 cols: Driver Leaderboard */}
-          <div className="lg:col-span-4 xl:col-span-3 h-full flex flex-col min-h-0">
+          {/* Right 5 cols: Driver Leaderboard */}
+          <div className="lg:col-span-5 h-full flex flex-col min-h-0">
             <Leaderboard
               drivers={drivers}
               selectedDriver={selectedDriver}
@@ -349,6 +358,8 @@ export const App: React.FC = () => {
             />
           </div>
         </div>
+        </>
+        )}
       </main>
 
       {/* Keep activeTab wired even though other tabs are locked */}

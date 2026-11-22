@@ -103,3 +103,28 @@ class DriverLapResponse(BaseModel):
     duration_sector_3: Optional[float] = None
     compound: Optional[str] = None
     date_start: Optional[str] = None
+
+
+class PredictionContext(BaseModel):
+    """Weekend context attached to a race prediction."""
+    circuit: Optional[str] = Field(None, description="Circuit short name")
+    country: Optional[str] = Field(None, description="Host country")
+    location: Optional[str] = Field(None, description="Circuit location / city")
+    date: Optional[str] = Field(None, description="Race start timestamp")
+    rain: bool = Field(False, description="Wet-race flag aggregated over the weekend")
+    air_temp: Optional[float] = Field(None, description="Mean air temperature (°C)")
+    track_temp: Optional[float] = Field(None, description="Mean track temperature (°C)")
+    model_source: str = Field(..., description="Prediction engine used (ML blend or baseline)")
+
+
+class RacePredictionResponse(BaseModel):
+    """Full predicted race outcome: one entry per driver."""
+    context: PredictionContext
+    predictions: list[dict] = Field(
+        ...,
+        description=(
+            "Drivers ordered by expected finish. Each entry carries the "
+            "identity fields of DriverResponse plus predicted_position, "
+            "p_win, p_podium, p_points, expected_points and top_factors."
+        ),
+    )

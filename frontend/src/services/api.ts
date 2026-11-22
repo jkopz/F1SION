@@ -3,7 +3,7 @@
  * Provides typed asynchronous methods to interact with the FastAPI backend.
  */
 
-import { Driver, DriverLap, DriverTrajectory, Session, TrackLayout } from '../types/f1';
+import { Driver, DriverLap, DriverTrajectory, RacePrediction, Session, TrackLayout } from '../types/f1';
 
 const API_BASE = '/api';
 
@@ -84,6 +84,16 @@ export async function fetchFastestLapPerDriver(
   }
 
   return fastest;
+}
+
+/** Predicted race outcome for the weekend containing the given session. */
+export async function fetchRacePrediction(sessionKey: number): Promise<RacePrediction> {
+  const res = await fetch(`${API_BASE}/predictions/race?session_key=${sessionKey}`);
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail || `Prediction failed: ${res.statusText}`);
+  }
+  return res.json();
 }
 
 export async function shutdownServer(): Promise<void> {

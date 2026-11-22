@@ -17,7 +17,11 @@ An F1 analytics, prediction and simulation platform. F1SION combines session dat
 
 **Qualifying Analysis** — live track animation with real-time lap playback, sector split timing and the full grid lineup:
 
-![F1SION Qualifying Analysis — Interlagos](docs/screenshots/dashboard.png)
+![F1SION Qualifying Analysis — Las Vegas](docs/screenshots/qualifying.png)
+
+**Race Predictions** — Monte-Carlo simulated race outcome with predicted podium, per-driver win/podium/points probabilities and a full feature breakdown:
+
+![F1SION Race Predictions — Spielberg](docs/screenshots/predictions.png)
 
 <details>
 <summary>📦 More screenshots</summary>

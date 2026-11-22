@@ -142,8 +142,12 @@ class OpenF1Client:
         return await self.get("drivers", {"session_key": session_key})
 
     async def get_results(self, session_key: int) -> list[dict[str, Any]]:
-        """Retrieves race/qualifying results with positions for a specific session."""
-        return await self.get("results", {"session_key": session_key})
+        """Retrieves classified session results (position, DNF flags) for a session.
+
+        Uses OpenF1's ``session_result`` endpoint — the plain ``results``
+        endpoint returns an error payload and no per-driver classification.
+        """
+        return await self.get("session_result", {"session_key": session_key})
 
     async def get_laps(
         self, session_key: int, driver_number: Optional[int] = None
@@ -153,6 +157,10 @@ class OpenF1Client:
         if driver_number is not None:
             params["driver_number"] = driver_number
         return await self.get("laps", params)
+
+    async def get_weather(self, session_key: int) -> list[dict[str, Any]]:
+        """Retrieves weather samples (air/track temperature, rainfall) for a session."""
+        return await self.get("weather", {"session_key": session_key})
 
     async def get_driver_fastest_lap(
         self, session_key: int, driver_number: int

@@ -82,3 +82,57 @@ export interface DriverTrajectory {
   lap_duration: number;
   points: TrajectoryPoint[];
 }
+
+/* ---------------------- Race Predictor (app.ml) ---------------------- */
+
+export interface PredictionContext {
+  circuit?: string;
+  country?: string;
+  location?: string;
+  date?: string;
+  rain: boolean;
+  air_temp?: number;
+  track_temp?: number;
+  /** e.g. "xgboost + baseline blend" or "deterministic baseline" */
+  model_source: string;
+}
+
+/** One driver's race prediction (identity fields + model output). */
+export interface DriverPrediction {
+  driver_number: number;
+  name_acronym: string;
+  full_name?: string;
+  team_name: string;
+  team_colour: string;
+  headshot_url?: string;
+  country_code?: string;
+
+  /* Features */
+  grid_position?: number;
+  quali_delta?: number;
+  practice_delta?: number;
+  long_run_delta?: number;
+  track_races?: number;
+  track_avg_finish?: number;
+  track_best?: number;
+  form_avg_finish?: number;
+  /** Raw per-season DNF share (unsmoothed) and the number of races it is based on */
+  dnf_rate?: number;
+  dnf_races?: number;
+  /** DNF probability as actually used by the Monte-Carlo simulation (smoothed) */
+  dnf_risk?: number;
+
+  /* Model output */
+  predicted_position: number;
+  p_win: number;
+  p_podium: number;
+  p_points: number;
+  expected_points: number;
+  /** Short human-readable drivers of this prediction, most influential first */
+  top_factors: string[];
+}
+
+export interface RacePrediction {
+  context: PredictionContext;
+  predictions: DriverPrediction[];
+}

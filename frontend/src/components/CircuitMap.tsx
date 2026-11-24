@@ -937,7 +937,7 @@ export const CircuitMap: React.FC<CircuitMapProps> = ({
                   <img
                     src={cleanHeadshotUrl(selectedDriver?.headshot_url)}
                     alt={selectedDriver?.broadcast_name}
-                    className="h-full w-full object-cover object-top"
+                    className="h-full w-full object-cover object-top scale-[1.3] origin-top"
                     onError={(e) => {
                       (e.target as HTMLElement).style.display = 'none';
                     }}

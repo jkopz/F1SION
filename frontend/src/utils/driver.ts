@@ -77,6 +77,58 @@ const F1_CDN_BASE = 'https://media.formula1.com/content/dam/fom-website/drivers'
 const FALLBACK_IMAGE = 'https://media.formula1.com/content/dam/fom-website/drivers/2025/f1-generic-driver.jpg';
 
 /**
+ * Locally bundled driver headshots (frontend/public/drivers/*.png).
+ * Keyed by lowercase last name (plus common spelling variants); these take
+ * priority over the remote F1 CDN images.
+ */
+const LOCAL_DRIVER_IMAGES: Record<string, string> = {
+  albon: 'albon',
+  alonso: 'alonso',
+  antonelli: 'antonelli',
+  bearman: 'bearman',
+  bortoleto: 'bortoleto',
+  bottas: 'bottas',
+  camara: 'camara',
+  colapinto: 'colapinto',
+  hadjar: 'hadjar',
+  hamilton: 'hamilton',
+  hirakawa: 'hirakawa',
+  huelkenberg: 'huelkenberg',
+  hulkenberg: 'huelkenberg', // URL spelling variant
+  lawson: 'lawson',
+  leclerc: 'leclerc',
+  lindblad: 'lindblad',
+  norris: 'norris',
+  ocon: 'ocon',
+  perez: 'perez',
+  piastri: 'piastri',
+  russel: 'russel',
+  russell: 'russel', // URL spelling variant
+  sainz: 'sainz',
+  stroll: 'stroll',
+  tsunoda: 'tsunoda',
+  verstappen: 'verstappen',
+};
+
+const LOCAL_IMAGE_BASE = '/drivers/';
+
+/**
+ * Tries to resolve a locally bundled headshot from an F1 CDN URL.
+ * OpenF1 URLs embed the full name, e.g.:
+ *   .../drivers/2025/MAXVER01_Max_Verstappen/maxver01.png.transform/1col/image.png
+ */
+function resolveLocalDriverImage(url: string): string | undefined {
+  const match = url.match(/([A-Za-z]+(?:_[A-Za-z]+)+)\/[a-z]+0\d\.(?:png|jpg)/);
+  if (!match) return undefined;
+  const tokens = match[1].toLowerCase().split('_');
+  for (const token of tokens) {
+    const file = LOCAL_DRIVER_IMAGES[token];
+    if (file) return `${LOCAL_IMAGE_BASE}${file}.png`;
+  }
+  return undefined;
+}
+
+/**
  * Strips the OpenF1 Cloudinary fallback prefix from headshot URLs so the
  * actual F1 media CDN image is loaded directly.
  *
@@ -90,6 +142,13 @@ const FALLBACK_IMAGE = 'https://media.formula1.com/content/dam/fom-website/drive
  */
 export function cleanHeadshotUrl(url?: string | null): string | undefined {
   if (!url) return undefined;
+
+  // Locally bundled headshots first — they cover the full current lineup
+  // and override stale/missing CDN images.
+  const local = url.includes('/')
+    ? resolveLocalDriverImage(url)
+    : undefined;
+  if (local) return local;
 
   const FALLBACK_PREFIX = 'd_driver_fallback_image.png/';
   const idx = url.indexOf(FALLBACK_PREFIX);

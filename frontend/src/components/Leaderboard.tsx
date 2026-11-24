@@ -42,7 +42,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = memo(function Leaderboard
       </div>
 
       {/* Driver List */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-2.5 custom-scrollbar">
+      <div className="flex-1 overflow-y-auto p-3 space-y-1.5 custom-scrollbar">
         {drivers.map((driver, index) => {
           const isSelected = selectedDriver?.driver_number === driver.driver_number;
           const isPole = index === 0;
@@ -62,7 +62,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = memo(function Leaderboard
             <button
               key={driver.driver_number}
               onClick={() => onSelectDriver(driver)}
-              className={`w-full group relative flex items-center justify-between h-24 px-5 rounded-2xl transition-colors duration-200 border text-left ${
+              className={`w-full group relative flex items-center justify-between h-14 px-4 rounded-xl transition-colors duration-200 border text-left ${
                 isSelected
                   ? 'bg-white/[0.08] border-white/[0.2] shadow-[0_4px_20px_rgba(0,0,0,0.4)]'
                   : 'bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.05] hover:border-white/[0.12]'
@@ -70,7 +70,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = memo(function Leaderboard
             >
               {/* Active glow accent bar */}
               <div
-                className={`absolute left-0 top-2 bottom-2 w-1.5 rounded-full transition-all ${
+                className={`absolute left-0 top-1.5 bottom-1.5 w-1 rounded-full transition-all ${
                   isSelected ? 'opacity-100' : 'opacity-40 group-hover:opacity-75'
                 }`}
                 style={{
@@ -79,21 +79,21 @@ export const Leaderboard: React.FC<LeaderboardProps> = memo(function Leaderboard
                 }}
               />
 
-              <div className="flex items-center gap-4 pl-2 min-w-0">
+              <div className="flex items-center gap-3 pl-1 min-w-0">
                 {/* Position (based on lap time ranking, not quali position) */}
-                <span className={`w-12 shrink-0 text-center font-mono text-2xl font-black ${
+                <span className={`w-9 shrink-0 text-center font-mono text-sm font-bold ${
                   isPole ? 'text-yellow-400' : 'text-zinc-300'
                 }`}>
                   P{index + 1}
                 </span>
 
                 {/* Driver Headshot */}
-                <div className="relative h-14 w-14 rounded-2xl overflow-hidden border border-white/[0.12] bg-black/40 shrink-0">
+                <div className="relative h-9 w-9 rounded-lg overflow-hidden border border-white/[0.12] bg-black/40 shrink-0">
                   {headshotUrl ? (
                     <img
                       src={headshotUrl}
                       alt={driver.broadcast_name}
-                      className="h-full w-full object-cover object-top"
+                      className="h-full w-full object-cover object-top scale-[1.3] origin-top"
                       onError={(e) => {
                         (e.target as HTMLImageElement).style.display = 'none';
                         // Show fallback number badge
@@ -118,9 +118,9 @@ export const Leaderboard: React.FC<LeaderboardProps> = memo(function Leaderboard
 
                 {/* Driver Name & Team */}
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline gap-2.5 flex-wrap">
+                  <div className="flex items-baseline gap-2 flex-wrap">
                     {/* Acronym in Display Bold */}
-                    <span className="shrink-0 text-lg tracking-wide text-white" style={{ fontFamily: 'Formula1-Display-Bold, Formula1-Bold, sans-serif' }}>
+                    <span className="shrink-0 text-sm tracking-wide text-white" style={{ fontFamily: 'Formula1-Display-Bold, Formula1-Bold, sans-serif' }}>
                       {driver.name_acronym}
                     </span>
                     {/* Full Name */}
@@ -128,7 +128,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = memo(function Leaderboard
                       {fullName}
                     </span>
                   </div>
-                  <span className="text-xs font-medium text-zinc-400 truncate block leading-tight mt-1">
+                  <span className="text-[10px] font-medium text-zinc-400 truncate block leading-tight mt-0.5">
                     {driver.team_name}
                   </span>
                 </div>
@@ -138,18 +138,18 @@ export const Leaderboard: React.FC<LeaderboardProps> = memo(function Leaderboard
               <div className="flex items-center gap-1.5 shrink-0 ml-2">
                 {rowTime !== undefined ? (
                   isSelected && driverLap?.lap_duration ? (
-                    <div className="flex items-center gap-1.5 text-xs font-mono font-bold text-green-400 bg-green-500/10 px-2.5 py-1.5 rounded-lg border border-green-500/25">
-                      <Timer size={12} />
+                    <div className="flex items-center gap-1 text-[11px] font-mono font-bold text-green-400 bg-green-500/10 px-2 py-1 rounded-lg border border-green-500/25">
+                      <Timer size={11} />
                       <span>{rowTime}</span>
                     </div>
                   ) : (
-                    <span className="text-base font-mono font-bold text-zinc-100 px-2 py-1 rounded-lg">
+                    <span className="text-sm font-mono font-bold text-zinc-100 px-1.5 py-0.5 rounded-lg">
                       {rowTime}
                     </span>
                   )
                 ) : (
                   <ChevronRight
-                    size={16}
+                    size={14}
                     className={`text-zinc-600 transition-transform ${
                       isSelected ? 'text-white translate-x-0.5' : 'group-hover:translate-x-0.5'
                     }`}

@@ -331,11 +331,10 @@ export const App: React.FC = () => {
           />
         </div>
 
-        {/* Primary Workspace: ~60/40 split — map left, leaderboard right in
-            the Predictions-tab row style */}
+        {/* Primary Workspace: ~65/35 split — wider circuit, leaner leaderboard */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 min-h-0">
-          {/* Left 7 cols: Circuit Map & Telemetry Canvas */}
-          <div className="lg:col-span-7 h-full flex flex-col min-h-0">
+          {/* Left 8 cols: Circuit Map & Telemetry Canvas */}
+          <div className="lg:col-span-8 h-full flex flex-col min-h-0">
             <CircuitMap
               layout={layout}
               selectedDriver={selectedDriver}
@@ -347,8 +346,8 @@ export const App: React.FC = () => {
             />
           </div>
 
-          {/* Right 5 cols: Driver Leaderboard */}
-          <div className="lg:col-span-5 h-full flex flex-col min-h-0">
+          {/* Right 4 cols: Driver Leaderboard */}
+          <div className="lg:col-span-4 h-full flex flex-col min-h-0">
             <Leaderboard
               drivers={drivers}
               selectedDriver={selectedDriver}

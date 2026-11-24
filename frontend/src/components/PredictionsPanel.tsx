@@ -307,7 +307,7 @@ function DriverAvatar({
         <img
           src={headshotUrl}
           alt={driver.name_acronym}
-          className="h-full w-full object-cover object-top bg-black/30"
+          className="h-full w-full object-cover object-top bg-black/30 scale-[1.3] origin-top"
           onError={(e) => {
             (e.target as HTMLImageElement).style.display = 'none';
           }}
@@ -366,7 +366,7 @@ const PodiumStep: React.FC<{
             <img
               src={cleanHeadshotUrl(driver.headshot_url)}
               alt={driver.name_acronym}
-              className="absolute inset-0 h-full w-full object-cover object-top bg-black/30"
+              className="absolute inset-0 h-full w-full object-cover object-top bg-black/30 scale-[1.3] origin-top"
               onError={(e) => {
                 (e.target as HTMLImageElement).style.display = 'none';
               }}
